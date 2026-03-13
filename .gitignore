@@ -1,0 +1,64 @@
+# Python bytecode/cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Build and packaging
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Test and coverage
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# IDE/editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# MLflow outputs
+mlruns/
+mlartifacts/
+
+# Logs
+*.log
+logs/
+
+# Environment variables
+.env
+.env.*
+
+# Model artifacts and generated outputs
+models/trained_models/*
+!models/trained_models/.gitkeep
+models/model_registry/*
+!models/model_registry/.gitkeep
+
+data/processed/*
+!data/processed/.gitkeep
+
+# Keep raw and dataset folders tracked, but ignore accidental dump files if needed
+# data/raw/*
+# !data/raw/.gitkeep
+# data/dataset/*
+# !data/dataset/.gitkeep
+
+# Reports
+reports/
