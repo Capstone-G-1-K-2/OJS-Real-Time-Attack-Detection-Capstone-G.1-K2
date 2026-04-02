@@ -10,8 +10,8 @@ import mlflow
 import pandas as pd
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score, roc_auc_score
-from sklearn.model_selection import train_test_split
+from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score, roc_auc_score, classification_report, confusion_matrix
+from sklearn.model_selection import train_test_split, StratifiedKFold, cross_validate
 from sklearn.pipeline import Pipeline
 from sklearn.svm import SVC
 from xgboost import XGBClassifier
@@ -114,6 +114,8 @@ def main() -> None:
     parser.add_argument("--random-state", type=int, default=42)
     parser.add_argument("--output-dir", default="models/model_registry/public_baseline")
     parser.add_argument("--max-samples", type=int, default=0, help="Sampling maksimum baris untuk percepat eksperimen (0 = pakai semua).")
+    parser.add_argument("--cv-splits", type=int, default=5, help="Jumlah folds untuk cross-validation.")
+    parser.add_argument("--no-cv", action="store_true", help="Skip cross-validation.")
     args = parser.parse_args()
 
     dataset_path = Path(args.dataset)
@@ -166,6 +168,8 @@ def main() -> None:
     if y.nunique() < 2:
         raise ValueError("Label harus punya minimal dua kelas (0 dan 1).")
 
+    print(f"[INFO] Class distribution: {y.value_counts().to_dict()}", flush=True)
+
     X_train, X_test, y_train, y_test = train_test_split(
         X,
         y,
@@ -194,11 +198,42 @@ def main() -> None:
                     "label_col": label_col,
                     "test_size": args.test_size,
                     "random_state": args.random_state,
+                    "cv_splits": args.cv_splits if not args.no_cv else 0,
                 }
             )
 
             metrics = evaluate_model(model, X_train, X_test, y_train, y_test)
-            mlflow.log_metrics(metrics)
+            
+            # Cross-validation
+            cv_results = None
+            if not args.no_cv:
+                print(f"[INFO]   Running {args.cv_splits}-fold CV for {model_name}...", flush=True)
+                skf = StratifiedKFold(n_splits=args.cv_splits, shuffle=True, random_state=args.random_state)
+                cv_results = cross_validate(
+                    model,
+                    X_train,
+                    y_train,
+                    cv=skf,
+                    scoring=["accuracy", "f1", "precision", "recall", "roc_auc"],
+                    return_train_score=True,
+                )
+                
+                # Log CV metrics
+                for metric_name in ["accuracy", "f1", "precision", "recall", "roc_auc"]:
+                    mean_key = f"test_{metric_name}"
+                    if mean_key in cv_results:
+                        mlflow.log_metric(f"cv_{metric_name}_mean", float(cv_results[mean_key].mean()))
+                        mlflow.log_metric(f"cv_{metric_name}_std", float(cv_results[mean_key].std()))
+            
+            # Log test metrics
+            for metric_name, value in metrics.items():
+                mlflow.log_metric(f"test_{metric_name}", value)
+
+            # Log classification report
+            model.fit(X_train, y_train)
+            y_pred = model.predict(X_test)
+            class_report = classification_report(y_test, y_pred)
+            mlflow.log_text(class_report, "classification_report.txt")
 
             model_path = output_dir / f"{model_name}.joblib"
             joblib.dump(model, model_path)
@@ -206,12 +241,15 @@ def main() -> None:
 
             row: dict[str, float | str] = {"model": model_name}
             row.update(metrics)
+            if cv_results:
+                row["cv_f1_mean"] = float(cv_results["test_f1"].mean())
+                row["cv_f1_std"] = float(cv_results["test_f1"].std())
             results.append(row)
 
             if metrics["f1"] > best_f1:
                 best_f1 = metrics["f1"]
                 best_model_name = model_name
-        print(f"[INFO] Finished model: {model_name} | f1={metrics['f1']:.4f}", flush=True)
+        print(f"[INFO] Finished {model_name} | f1={metrics['f1']:.4f}", flush=True)
 
     result_df = pd.DataFrame(results).sort_values("f1", ascending=False)
     result_csv = output_dir / "comparison_results.csv"
@@ -225,9 +263,11 @@ def main() -> None:
     }
     (output_dir / "summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
 
-    print("Eksperimen baseline selesai.")
+    print("\n" + "=" * 60)
+    print("BASELINE COMPARISON COMPLETE")
+    print("=" * 60)
     print(result_df.to_string(index=False))
-    print(json.dumps(summary, indent=2))
+    print("\n" + json.dumps(summary, indent=2))
 
 
 if __name__ == "__main__":
