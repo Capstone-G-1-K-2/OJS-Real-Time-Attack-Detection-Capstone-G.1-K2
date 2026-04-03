@@ -2,7 +2,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
+
+# Setup path so imports work when running directly
+PROJECT_ROOT = Path(__file__).resolve().parents[2]  # Go up 2 levels from src/training/
+sys.path.insert(0, str(PROJECT_ROOT))
 
 import joblib
 import mlflow
@@ -102,6 +107,29 @@ def train(
 
     if "label" not in df.columns:
         raise ValueError("Dataset harus punya kolom 'label' (0 = normal, 1 = attack).")
+
+    # Drop old pattern columns if pattern versions exist (avoid duplicates)
+    if "has_sqli_pattern" in df.columns and "has_sqli" in df.columns:
+        df = df.drop(columns=["has_sqli"])
+    if "has_xss_pattern" in df.columns and "has_xss" in df.columns:
+        df = df.drop(columns=["has_xss"])
+    
+    # Rename columns from CSV format to training format if needed
+    column_mapping = {
+        "has_sqli": "has_sqli_pattern",
+        "has_xss": "has_xss_pattern",
+    }
+    df = df.rename(columns={k: v for k, v in column_mapping.items() if k in df.columns})
+    
+    # Add missing columns with defaults
+    if "rule_count" not in df.columns:
+        df["rule_count"] = 0
+    if "has_suspicious_path" not in df.columns:
+        df["has_suspicious_path"] = 0
+    if "has_sqli_pattern" not in df.columns:
+        df["has_sqli_pattern"] = 0
+    if "has_xss_pattern" not in df.columns:
+        df["has_xss_pattern"] = 0
 
     required_columns = {
         "method",

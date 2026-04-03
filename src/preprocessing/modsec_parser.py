@@ -7,29 +7,11 @@ from typing import Any
 
 import pandas as pd
 
-SQLI_PATTERNS = [
-    r"union\s+select",
-    r"or\s+1=1",
-    r"sleep\s*\(",
-    r"information_schema",
-    r"drop\s+table",
-]
-
-XSS_PATTERNS = [
-    r"<script",
-    r"javascript:",
-    r"onerror\s*=",
-    r"onload\s*=",
-    r"alert\s*\(",
-]
-
-SUSPICIOUS_PATH_PATTERNS = [
-    r"/wp-admin",
-    r"/phpmyadmin",
-    r"/etc/passwd",
-    r"/\.env",
-    r"/admin",
-]
+from src.preprocessing.pattern_rules import (
+    SQLI_PATTERNS,
+    SUSPICIOUS_PATH_PATTERNS,
+    XSS_PATTERNS,
+)
 
 
 def _safe_int(value: Any, default: int = 0) -> int:

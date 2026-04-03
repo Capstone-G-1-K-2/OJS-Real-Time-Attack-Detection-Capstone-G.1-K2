@@ -12,6 +12,7 @@ from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_sc
 from sklearn.model_selection import train_test_split, StratifiedKFold, cross_validate
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder
+from sklearn.feature_extraction.text import TfidfVectorizer
 from xgboost import XGBClassifier
 
 # Make src importable when running script directly.
@@ -71,14 +72,23 @@ def main() -> None:
 
     print(f"[INFO] Dataset shape: {X.shape}, Class distribution: {y.value_counts().to_dict()}", flush=True)
 
+    # Separate features for preprocessing
     cat_cols = ["method"] if "method" in X.columns else []
-    num_cols = [c for c in X.columns if c not in cat_cols]
+    text_col = "uri" if "uri" in X.columns else None
+    num_cols = [c for c in X.columns if c not in cat_cols and c != text_col]
+
+    # Build transformers (same as training pipeline)
+    transformers = [
+        ("num", "passthrough", num_cols),
+        ("cat", OneHotEncoder(handle_unknown="ignore"), cat_cols),
+    ]
+    
+    # Add TF-IDF for text if uri column exists
+    if text_col:
+        transformers.append(("txt", TfidfVectorizer(max_features=300), text_col))
 
     preprocessor = ColumnTransformer(
-        transformers=[
-            ("cat", OneHotEncoder(handle_unknown="ignore"), cat_cols),
-            ("num", "passthrough", num_cols),
-        ],
+        transformers=transformers,
         remainder="drop",
     )
 

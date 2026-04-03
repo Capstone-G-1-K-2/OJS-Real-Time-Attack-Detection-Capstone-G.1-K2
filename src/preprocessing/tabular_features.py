@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 import re
-from urllib.parse import urlparse, parse_qs
+from urllib.parse import urlparse, parse_qs, unquote_plus
 
 import pandas as pd
 
-SQL_KEYWORDS = ["union", "select", "sleep", "drop", "insert", "update", "delete", "or 1=1"]
-XSS_KEYWORDS = ["<script", "javascript:", "onerror=", "onload=", "alert("]
-SENSITIVE_PATHS = ["/wp-admin", "/phpmyadmin", "/.env", "/etc/passwd", "wp-config.php"]
+from src.preprocessing.pattern_rules import (
+    SQLI_PATTERNS,
+    SUSPICIOUS_PATH_PATTERNS,
+    XSS_PATTERNS,
+)
 
 SPECIAL_CHARS_RE = re.compile(r"[^a-zA-Z0-9]")
 DIGIT_RE = re.compile(r"\d")
@@ -20,45 +22,48 @@ def _safe_str(value: object) -> str:
     return str(value)
 
 
-def _count_keywords(text: str, keywords: list[str]) -> int:
-    lowered = text.lower()
-    return sum(1 for kw in keywords if kw in lowered)
+def _contains_pattern(text: str, patterns: list[str]) -> int:
+    """Check if any pattern matches in text (regex-based, like modsec_parser)."""
+    for pattern in patterns:
+        if re.search(pattern, text, flags=re.IGNORECASE):
+            return 1
+    return 0
 
 
 def build_tabular_features(df: pd.DataFrame) -> pd.DataFrame:
-    """Build tabular features from parsed HTTP log rows.
-
-    This intentionally avoids leakage-prone columns from response/audit outcomes,
-    such as HTTP status, ModSecurity rule count, and severity-derived signals.
+    """Build tabular features from HTTP request data.
+    
+    Aligns with training features from modsec_parser for consistency.
+    Supports both full audit logs and minimal request data (with defaults).
     """
     if "uri" not in df.columns:
         raise ValueError("Kolom 'uri' wajib ada untuk ekstraksi fitur tabular.")
 
     uri = df["uri"].map(_safe_str)
+    # Decode URI untuk catch encoded payloads
+    uri_decoded = uri.map(unquote_plus)
+    
     method = df["method"].map(_safe_str).str.upper() if "method" in df.columns else pd.Series("GET", index=df.index)
     user_agent = df["user_agent"].map(_safe_str) if "user_agent" in df.columns else pd.Series("", index=df.index)
 
-    parsed = uri.map(urlparse)
-    path = parsed.map(lambda x: x.path or "")
-    query = parsed.map(lambda x: x.query or "")
-
-    # Basic lexical features from request intent.
+    # Extract features that match training pipeline
     features = pd.DataFrame(index=df.index)
+    
+    # Direct fields (with defaults for inference)
     features["method"] = method
-    features["uri_length"] = uri.str.len()
-    features["path_length"] = path.str.len()
-    features["query_length"] = query.str.len()
-    features["num_query_params"] = query.map(lambda q: len(parse_qs(q)))
-    features["num_slashes"] = uri.str.count("/")
-    features["num_dots"] = uri.str.count(r"\.")
-    features["num_special_chars"] = uri.map(lambda s: len(SPECIAL_CHARS_RE.findall(s)))
-    features["num_digits"] = uri.map(lambda s: len(DIGIT_RE.findall(s)))
-    features["num_hex_encoded"] = uri.map(lambda s: len(HEX_RE.findall(s)))
-
-    full_text = (uri + " " + user_agent.map(_safe_str)).str.lower()
-    features["sql_keyword_hits"] = full_text.map(lambda s: _count_keywords(s, SQL_KEYWORDS))
-    features["xss_keyword_hits"] = full_text.map(lambda s: _count_keywords(s, XSS_KEYWORDS))
-    features["has_sensitive_path"] = path.str.lower().map(lambda s: int(any(p in s for p in SENSITIVE_PATHS)))
-    features["has_query"] = query.map(lambda s: int(len(s) > 0))
+    features["uri"] = uri
+    features["status"] = df["status"].fillna(200) if "status" in df.columns else 200
+    features["bytes_sent"] = df["bytes_sent"].fillna(0) if "bytes_sent" in df.columns else 0
+    features["request_time"] = df["request_time"].fillna(0.0) if "request_time" in df.columns else 0.0
+    features["rule_count"] = df["rule_count"].fillna(0) if "rule_count" in df.columns else 0
+    features["severity_score"] = df["severity_score"].fillna(0) if "severity_score" in df.columns else 0
+    features["user_agent_len"] = user_agent.str.len()
+    features["uri_len"] = uri.str.len()
+    
+    # Pattern matching (using decoded URI to catch obfuscated attacks)
+    full_text = uri_decoded + " " + user_agent.map(_safe_str)
+    features["has_sqli_pattern"] = full_text.map(lambda s: _contains_pattern(s, SQLI_PATTERNS))
+    features["has_xss_pattern"] = full_text.map(lambda s: _contains_pattern(s, XSS_PATTERNS))
+    features["has_suspicious_path"] = uri.map(lambda s: _contains_pattern(s, SUSPICIOUS_PATH_PATTERNS))
 
     return features
