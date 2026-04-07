@@ -278,3 +278,12 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+# Ignore env files
+docker-ojs/.env
+
+# Ignore local configs
+docker-ojs/.env.local
+
+# Optional (logs, db)
+docker-ojs/volumes/db/
+docker-ojs/volumes/logs/
