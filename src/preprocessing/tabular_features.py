@@ -9,6 +9,8 @@ from src.preprocessing.pattern_rules import (
     SQLI_PATTERNS,
     SUSPICIOUS_PATH_PATTERNS,
     XSS_PATTERNS,
+    PATH_TRAVERSAL_PATTERNS,
+    COMMAND_INJECTION_PATTERNS,
 )
 
 SPECIAL_CHARS_RE = re.compile(r"[^a-zA-Z0-9]")
@@ -65,5 +67,7 @@ def build_tabular_features(df: pd.DataFrame) -> pd.DataFrame:
     features["has_sqli_pattern"] = full_text.map(lambda s: _contains_pattern(s, SQLI_PATTERNS))
     features["has_xss_pattern"] = full_text.map(lambda s: _contains_pattern(s, XSS_PATTERNS))
     features["has_suspicious_path"] = uri.map(lambda s: _contains_pattern(s, SUSPICIOUS_PATH_PATTERNS))
+    features["has_path_traversal"] = uri_decoded.map(lambda s: _contains_pattern(s, PATH_TRAVERSAL_PATTERNS))
+    features["has_command_injection"] = uri_decoded.map(lambda s: _contains_pattern(s, COMMAND_INJECTION_PATTERNS))
 
     return features

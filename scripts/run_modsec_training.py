@@ -122,6 +122,10 @@ def train(
         df["has_sqli_pattern"] = 0
     if "has_xss_pattern" not in df.columns:
         df["has_xss_pattern"] = 0
+    if "has_path_traversal" not in df.columns:
+        df["has_path_traversal"] = 0
+    if "has_command_injection" not in df.columns:
+        df["has_command_injection"] = 0
 
     required_columns = {
         "method",
@@ -136,6 +140,8 @@ def train(
         "has_sqli_pattern",
         "has_xss_pattern",
         "has_suspicious_path",
+        "has_path_traversal",
+        "has_command_injection",
         "label",
     }
 

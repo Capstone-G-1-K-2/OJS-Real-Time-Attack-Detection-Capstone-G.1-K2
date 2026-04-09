@@ -247,6 +247,10 @@ for test in test_cases:
         df_test["has_sqli_pattern"] = 0
     if "has_xss_pattern" not in df_test.columns:
         df_test["has_xss_pattern"] = 0
+    if "has_path_traversal" not in df_test.columns:
+        df_test["has_path_traversal"] = 0
+    if "has_command_injection" not in df_test.columns:
+        df_test["has_command_injection"] = 0
     
     # Drop rule_id if it exists (not in model features)
     if "rule_id" in df_test.columns:

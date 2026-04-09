@@ -34,3 +34,33 @@ SUSPICIOUS_PATH_PATTERNS = [
     r"/backup",
     r"/\.bak",
 ]
+
+# Path Traversal patterns - detect directory traversal attempts
+PATH_TRAVERSAL_PATTERNS = [
+    r"\.\./",  # ../
+    r"\.\.\\",  # ..\ (Windows)
+    r"%2e%2e/",  # URL encoded ../
+    r"%2e%2e\\",  # URL encoded ..\
+    r"\.\.%2f",  # URL encoded ../
+    r"/etc/",
+    r"/proc/",
+    r"/sys/",
+    r"/root/",
+    r"c:\\windows",
+    r"c:\\winnt",
+]
+
+# Command Injection patterns - detect shell metacharacters and commands
+COMMAND_INJECTION_PATTERNS = [
+    r";\s*cat\s+",
+    r";\s*ls\s+",
+    r";\s*whoami",
+    r";\s*id\s+",
+    r";\s*uname\s+",
+    r"\$\(",  # $(command)
+    r"`[^`]+`",  # `command`
+    r"\|\s*nc\s+",  # pipe to netcat
+    r"\|\s*bash",  # pipe to bash
+    r"&\s*cat\s+",  # & cat
+    r">\s*/dev/null",  # redirect to /dev/null (cleanup)
+]

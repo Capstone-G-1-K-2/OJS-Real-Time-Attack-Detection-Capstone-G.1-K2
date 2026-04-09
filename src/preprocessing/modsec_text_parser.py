@@ -13,6 +13,14 @@ from typing import Any
 
 import pandas as pd
 
+from src.preprocessing.pattern_rules import (
+    SQLI_PATTERNS,
+    SUSPICIOUS_PATH_PATTERNS,
+    XSS_PATTERNS,
+    PATH_TRAVERSAL_PATTERNS,
+    COMMAND_INJECTION_PATTERNS,
+)
+
 
 def _extract_timestamp(line: str) -> str:
     """Extract timestamp from A section line."""
@@ -118,6 +126,14 @@ def _severity_to_score(severity: str) -> int:
     return mapping.get((severity or "").upper(), 0)
 
 
+def _contains_pattern(text: str, patterns: list[str]) -> int:
+    """Check if any pattern matches in text (regex-based)."""
+    for pattern in patterns:
+        if re.search(pattern, text, flags=re.IGNORECASE):
+            return 1
+    return 0
+
+
 def parse_modsecurity_text(file_path: str | Path) -> pd.DataFrame:
     """Parse ModSecurity text audit log format.
     
@@ -183,24 +199,33 @@ def parse_modsecurity_text(file_path: str | Path) -> pd.DataFrame:
         is_blocked = _extract_modsec_action(h_section)
         msg_info = _extract_message_info(h_section)
         
+        # Extract pattern features
+        uri = request_info.get("uri", "/")
+        full_text = f"{uri} {msg_info.get('msg', '')} {msg_info.get('matched_data', '')}"
+        
         # Build row
         row = {
             "timestamp": timestamp,
             "source_ip": source_ip,
             "method": request_info.get("method", "GET"),
-            "uri": request_info.get("uri", "/"),
+            "uri": uri,
             "status": status_code,
             "bytes_sent": 0,  # Not in text format, use 0 as placeholder
             "request_time": 0.0,  # Extracted from Stopwatch in H section if available
             "user_agent": user_agent,
             "user_agent_len": len(user_agent),
-            "uri_len": len(request_info.get("uri", "/")),
+            "uri_len": len(uri),
             "severity": msg_info.get("severity", "INFO"),
             "severity_score": _severity_to_score(msg_info.get("severity", "")),
             "rule_id": msg_info.get("rule_id", ""),
             "matched_data": msg_info.get("matched_data", ""),
             "msg": msg_info.get("msg", ""),
             "is_blocked": is_blocked,
+            "has_sqli": _contains_pattern(full_text, SQLI_PATTERNS),
+            "has_xss": _contains_pattern(full_text, XSS_PATTERNS),
+            "has_suspicious_path": _contains_pattern(uri, SUSPICIOUS_PATH_PATTERNS),
+            "has_path_traversal": _contains_pattern(uri, PATH_TRAVERSAL_PATTERNS),
+            "has_command_injection": _contains_pattern(uri, COMMAND_INJECTION_PATTERNS),
             "label": 1 if is_blocked else 0,  # Auto-label
         }
         

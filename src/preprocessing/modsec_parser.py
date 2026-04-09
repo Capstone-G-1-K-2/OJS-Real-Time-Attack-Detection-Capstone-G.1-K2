@@ -11,6 +11,8 @@ from src.preprocessing.pattern_rules import (
     SQLI_PATTERNS,
     SUSPICIOUS_PATH_PATTERNS,
     XSS_PATTERNS,
+    PATH_TRAVERSAL_PATTERNS,
+    COMMAND_INJECTION_PATTERNS,
 )
 
 
@@ -114,13 +116,16 @@ def parse_modsecurity_jsonl(file_path: str | Path) -> pd.DataFrame:
                 "has_sqli_pattern": _contains_pattern(full_text, SQLI_PATTERNS),
                 "has_xss_pattern": _contains_pattern(full_text, XSS_PATTERNS),
                 "has_suspicious_path": _contains_pattern(uri, SUSPICIOUS_PATH_PATTERNS),
+                "has_path_traversal": _contains_pattern(uri, PATH_TRAVERSAL_PATTERNS),
+                "has_command_injection": _contains_pattern(uri, COMMAND_INJECTION_PATTERNS),
             }
 
             # If explicit label exists in raw log, keep it for supervised training.
             label = payload.get("label")
             if label is not None:
                 row["label"] = int(label)
-            elif severity_score >= 3 or row["has_sqli_pattern"] or row["has_xss_pattern"] or row["has_suspicious_path"]:
+            elif (severity_score >= 3 or row["has_sqli_pattern"] or row["has_xss_pattern"] or 
+                  row["has_suspicious_path"] or row["has_path_traversal"] or row["has_command_injection"]):
                 row["label"] = 1
             else:
                 row["label"] = 0
@@ -163,9 +168,12 @@ def parse_modsecurity_audit_log(file_path: str | Path) -> pd.DataFrame:
             "has_sqli_pattern": _contains_pattern(full_text, SQLI_PATTERNS),
             "has_xss_pattern": _contains_pattern(full_text, XSS_PATTERNS),
             "has_suspicious_path": _contains_pattern(uri, SUSPICIOUS_PATH_PATTERNS),
+            "has_path_traversal": _contains_pattern(uri, PATH_TRAVERSAL_PATTERNS),
+            "has_command_injection": _contains_pattern(uri, COMMAND_INJECTION_PATTERNS),
             "label": 0,
         }
-        if severity_score >= 3 or row["has_sqli_pattern"] or row["has_xss_pattern"] or row["has_suspicious_path"]:
+        if (severity_score >= 3 or row["has_sqli_pattern"] or row["has_xss_pattern"] or 
+            row["has_suspicious_path"] or row["has_path_traversal"] or row["has_command_injection"]):
             row["label"] = 1
         rows.append(row)
 
