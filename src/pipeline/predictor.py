@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import logging
+import pickle
 from pathlib import Path
 from typing import Optional
 
-import joblib
 import pandas as pd
 
 from src.preprocessing.tabular_features import build_tabular_features
@@ -45,7 +45,8 @@ class PredictionPipeline:
         """Load trained model."""
         try:
             if Path(self.model_path).exists():
-                self.model = joblib.load(self.model_path)
+                with open(self.model_path, 'rb') as f:
+                    self.model = pickle.load(f)
                 logger.info(f"✓ Model loaded: {self.model_path}")
             else:
                 logger.warning(f"Model not found: {self.model_path}")

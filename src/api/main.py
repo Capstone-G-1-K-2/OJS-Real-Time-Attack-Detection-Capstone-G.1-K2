@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import logging
+import pickle
 import sys
 from pathlib import Path
 from typing import Optional
 
-import joblib
 import pandas as pd
 from fastapi import FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -82,7 +82,8 @@ def _load_model():
         model_path = VERSION_MANAGER.get_model_path(current_version)
         
         if model_path.exists():
-            MODEL = joblib.load(str(model_path))
+            with open(model_path, 'rb') as f:
+                MODEL = pickle.load(f)
             
             # Log detail
             info = VERSION_MANAGER.get_version_info(current_version)

@@ -9,7 +9,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[2]  # Go up 2 levels from src/training/
 sys.path.insert(0, str(PROJECT_ROOT))
 
-import joblib
+import pickle
 import mlflow
 import pandas as pd
 from sklearn.compose import ColumnTransformer
@@ -93,7 +93,7 @@ def train(
 
     Args:
         dataset_path: Path ke dataset CSV/JSONL.
-        model_output: Output path untuk model joblib.
+        model_output: Output path untuk model pickle.
         test_size: Proporsi test set.
         random_state: Random seed.
         n_splits: Jumlah folds untuk cross-validation.
@@ -219,7 +219,8 @@ def train(
     # Save model
     model_path = Path(model_output)
     model_path.parent.mkdir(parents=True, exist_ok=True)
-    joblib.dump(pipeline, model_path)
+    with open(model_path, 'wb') as f:
+        pickle.dump(pipeline, f)
     print(f"[INFO] Model saved to {model_path}")
 
     # MLflow logging
@@ -263,8 +264,8 @@ def main() -> None:
     parser.add_argument("--dataset", required=True, help="Path ke dataset CSV/JSONL.")
     parser.add_argument(
         "--model-output",
-        default="models/trained_models/modsec_xgb.joblib",
-        help="Output path model joblib.",
+        default="models/trained_models/modsec_xgb.pkl",
+        help="Output path model pickle.",
     )
     parser.add_argument("--metrics-output", default="models/trained_models/modsec_metrics.json")
     parser.add_argument("--test-size", type=float, default=0.2)

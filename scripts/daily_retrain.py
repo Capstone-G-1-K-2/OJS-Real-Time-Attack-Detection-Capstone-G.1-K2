@@ -29,7 +29,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder
 from xgboost import XGBClassifier
-import joblib
+import pickle
 import mlflow
 import mlflow.sklearn
 
@@ -314,7 +314,8 @@ def train_and_save_model(
         
         # Save model file dengan versi
         model_path = version_manager.get_model_path(new_version)
-        joblib.dump(pipeline, str(model_path))
+        with open(model_path, 'wb') as f:
+            pickle.dump(pipeline, f)
         logger.info(f"  ✓ Model saved: {model_path}")
         logger.info(f"  ✓ Version: {new_version}")
         

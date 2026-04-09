@@ -65,7 +65,7 @@ Sistem terdiri dari beberapa komponen utama:
 
 ## Tools & MLOps
 - MLflow
-- Joblib
+- Python pickle (built-in) for model serialization
 - Docker
 - Git & GitHub
 

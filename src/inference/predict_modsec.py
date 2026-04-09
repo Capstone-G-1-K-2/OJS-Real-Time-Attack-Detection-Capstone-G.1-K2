@@ -2,15 +2,15 @@ from __future__ import annotations
 
 import argparse
 import json
+import pickle
 from pathlib import Path
-
-import joblib
 
 from src.preprocessing.modsec_parser import load_dataset
 
 
 def predict(model_path: str, input_path: str, output_path: str, threshold: float) -> None:
-    model = joblib.load(model_path)
+    with open(model_path, 'rb') as f:
+        model = pickle.load(f)
     df = load_dataset(input_path)
 
     # Remove label if present in input data to avoid data leakage during inference.
@@ -39,7 +39,7 @@ def predict(model_path: str, input_path: str, output_path: str, threshold: float
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run inference on ModSecurity logs.")
-    parser.add_argument("--model", default="models/trained_models/modsec_xgb.joblib")
+    parser.add_argument("--model", default="models/trained_models/modsec_xgb.pkl")
     parser.add_argument("--input", required=True, help="Path ke file log/dataset.")
     parser.add_argument("--output", default="data/processed/predictions.csv")
     parser.add_argument("--threshold", type=float, default=0.5)

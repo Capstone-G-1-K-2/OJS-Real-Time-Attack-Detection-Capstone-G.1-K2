@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import pickle
 import sys
 from pathlib import Path
 
-import joblib
 import pandas as pd
 from sklearn.compose import ColumnTransformer
 from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score, roc_auc_score, confusion_matrix, classification_report
@@ -140,10 +140,11 @@ def main() -> None:
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    model_path = output_dir / "tabular_xgboost.joblib"
+    model_path = output_dir / "tabular_xgboost.pkl"
     result_path = output_dir / "result.json"
 
-    joblib.dump(pipeline, model_path)
+    with open(model_path, 'wb') as f:
+        pickle.dump(pipeline, f)
     
     summary = {
         "dataset": str(dataset_path),

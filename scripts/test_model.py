@@ -1,11 +1,11 @@
-"""Test joblib model dengan sample data."""
+"""Test pickle model dengan sample data."""
 
 from __future__ import annotations
 
 import sys
 from pathlib import Path
 
-import joblib
+import pickle
 import pandas as pd
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -19,7 +19,7 @@ def test_single_request(model_path: str, request_data: dict) -> dict:
     """Test model dengan 1 request.
     
     Args:
-        model_path: Path ke joblib model
+        model_path: Path ke pickle model
         request_data: Dict dengan kolom yg dibutuhkan (method, uri, status, dll)
     
     Returns:
@@ -27,7 +27,8 @@ def test_single_request(model_path: str, request_data: dict) -> dict:
     """
     # Load model
     print(f"[INFO] Loading model: {model_path}")
-    model = joblib.load(model_path)
+    with open(model_path, 'rb') as f:
+        model = pickle.load(f)
     print("[OK] Model loaded")
     
     # Create dataframe
@@ -72,10 +73,10 @@ def test_single_request(model_path: str, request_data: dict) -> dict:
 
 def main():
     """Test dengan sample requests."""
-    model_path = "models/trained_models/tabular_xgboost.joblib"
+    model_path = "models/trained_models/modsec_xgb.pkl"
     
     print("=" * 60)
-    print("TESTING JOBLIB MODEL")
+    print("TESTING PICKLE MODEL")
     print("=" * 60)
     
     # Sample 1: Normal request

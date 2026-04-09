@@ -88,7 +88,7 @@ class ModelVersionManager:
         # Create version metadata
         version_info = {
             "version": next_version,
-            "filename": f"modsec_xgb_v{next_version}.joblib",
+            "filename": f"modsec_xgb_v{next_version}.pkl",
             "created_at": datetime.now().isoformat(),
             "metrics": {
                 "accuracy": accuracy,
@@ -137,12 +137,12 @@ class ModelVersionManager:
             version: Version number (None = current version)
         
         Returns:
-            Path to joblib file
+            Path to pickle file
         """
         if version is None:
             version = self.get_current_version()
         
-        model_path = self.model_dir / f"modsec_xgb_v{version}.joblib"
+        model_path = self.model_dir / f"modsec_xgb_v{version}.pkl"
         return model_path
     
     def list_all_versions(self) -> list:

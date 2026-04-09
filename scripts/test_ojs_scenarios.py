@@ -3,7 +3,7 @@
 import sys
 from pathlib import Path
 
-import joblib
+import pickle
 import pandas as pd
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -13,7 +13,8 @@ from src.preprocessing.tabular_features import build_tabular_features
 
 # Load model
 print("[INFO] Loading model...")
-model = joblib.load("models/trained_models/tabular_xgboost.joblib")
+with open("models/trained_models/modsec_xgb.pkl", 'rb') as f:
+    model = pickle.load(f)
 
 test_cases = [
     # --- 1. NORMAL OJS TRAFFIC ---

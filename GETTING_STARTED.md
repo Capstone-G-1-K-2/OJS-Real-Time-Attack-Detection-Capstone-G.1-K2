@@ -72,12 +72,12 @@ pip install -r requirements.txt
 - pandas - Data manipulation
 - scikit-learn 1.5.2 - ML preprocessing
 - xgboost - ML model
-- joblib - Model serialization
+- pickle - Model serialization (built-in Python module)
 - numpy - Numerical computing
 
 ### Step 4: Verify Installation
 ```bash
-python -c "import pandas, sklearn, xgboost, joblib; print('All packages installed!')"
+python -c "import pandas, sklearn, xgboost, pickle; print('All packages installed!')"
 ```
 
 ---
@@ -101,8 +101,8 @@ OJS-Real-Time-Attack-Detection-Capstone-G.1-K2/
 ├── models/
 │   ├── trained_models/
 │   │   ├── .gitkeep                    # Placeholder
-│   │   └── tabular_xgboost.joblib      # Trained model (generate via training) ⭐
-│   └── model_registry/                 # Other model versions
+│   │   └── modsec_xgb.pkl              # Trained model (generate via training) ⭐
+│   └── model_registry/                 # Baseline models for comparison
 │
 ├── src/
 │   ├── preprocessing/
@@ -116,7 +116,7 @@ OJS-Real-Time-Attack-Detection-Capstone-G.1-K2/
 │   └── utils/                          # Utility functions
 │
 ├── scripts/
-│   ├── run_tabular_xgboost.py          # Main training script ⭐
+│   ├── run_modsec_training.py          # Main training script ⭐
 │   ├── test_model.py                   # Model testing
 │   ├── prepare_dataset_from_raw.py     # Data preparation
 │   ├── analyze_features.py             # Feature analysis
@@ -131,9 +131,9 @@ OJS-Real-Time-Attack-Detection-Capstone-G.1-K2/
 ```
 
 ### Key Files untuk Di-perhatikan:
-- ⭐ `scripts/run_tabular_xgboost.py` - **Generate model**
+- ⭐ `scripts/run_modsec_training.py` - **Generate model**
 - ⭐ `data/dataset/modsec_raw_processed.csv` - **Training data** (jangan dihapus!)
-- ⭐ `models/trained_models/tabular_xgboost.joblib` - **Model output**
+- ⭐ `models/trained_models/modsec_xgb.pkl` - **Model output**
 - `src/inference/predict_modsec.py` - Inference engine
 
 ---
@@ -142,9 +142,9 @@ OJS-Real-Time-Attack-Detection-Capstone-G.1-K2/
 
 ### ⚠️ PENTING: Model Tidak Ada di Git!
 
-File `.joblib` tidak disimpan di repository karena ukurannya yang besar. **Harus generate sendiri** dengan menjalankan script training.
+File `.pkl` tidak disimpan di repository karena ukurannya yang besar. **Harus generate sendiri** dengan menjalankan script training.
 
-### How to Generate Model (tabular_xgboost.joblib)
+### How to Generate Model (modsec_xgb.pkl)
 
 Pastikan:
 1. ✅ Virtual environment sudah aktif
@@ -154,37 +154,43 @@ Pastikan:
 ### Run Training Script
 
 ```bash
-python scripts/run_tabular_xgboost.py \
+python scripts/run_modsec_training.py \
   --dataset data/dataset/modsec_raw_processed.csv \
-  --output-dir models/trained_models \
+  --model-output models/trained_models/modsec_xgb.pkl \
   --cv-splits 3
 ```
 
 **Parameter penjelasan:**
 - `--dataset` - Path ke training dataset
-- `--output-dir` - Directory tempat model tersimpan
-- `--cv-splits` - Jumlah cross-validation splits (default: 3)
+- `--model-output` - Output path untuk model pickle
+- `--cv-splits` - Jumlah cross-validation splits (default: 5)
 
 ### Training Output
 
 Jika berhasil, Anda akan melihat:
 ```
-Training XGBoost with 3-fold cross-validation...
-Fold 1/3 - Accuracy: 0.9456, F1-Score: 0.9213, ROC-AUC: 0.9787
-Fold 2/3 - Accuracy: 0.9445, F1-Score: 0.9201, ROC-AUC: 0.9778
-Fold 3/3 - Accuracy: 0.9464, F1-Score: 0.9225, ROC-AUC: 0.9796
-Model saved to: models/trained_models/tabular_xgboost.joblib
+[INFO] Loading dataset: data/dataset/modsec_raw_processed.csv
+[INFO] Dataset shape: (142705, 20), Class distribution: {0: 95144, 1: 47561}
+[INFO] Running 3-fold cross-validation...
+  accuracy     - mean: 0.9986, std: 0.0000
+  f1           - mean: 0.9979, std: 0.0000
+  precision    - mean: 0.9982, std: 0.0005
+  recall       - mean: 0.9976, std: 0.0006
+  roc_auc      - mean: 1.0000, std: 0.0000
+
+[INFO] Model saved to models/trained_models/modsec_xgb.pkl
+[INFO] Metrics saved to models/trained_models/modsec_metrics.json
 ```
 
 ### Verify Model Generated
 
 ```bash
-ls -lh models/trained_models/tabular_xgboost.joblib
+ls -lh models/trained_models/modsec_xgb.pkl
 ```
 
 **Expected output:**
 ```
--rw-r--r--  1 user  staff  937K  Apr  2 19:55 tabular_xgboost.joblib
+-rw-r--r--  1 user  staff  594K  Apr  9 13:34 modsec_xgb.pkl
 ```
 
 ---
@@ -193,20 +199,20 @@ ls -lh models/trained_models/tabular_xgboost.joblib
 
 Setelah model berhasil di-generate, Anda bisa menjalankan inference.
 
-### Method 1: Batch Inference (CSV file)
-
-Untuk menjalankan prediksi pada dataset besar:
-
-```bash
-python src/inference/predict_modsec.py \
-  --model models/trained_models/tabular_xgboost.joblib \
+### Method 1: Batch Inference (Cmodsec_xgb.pkl \
   --input data/dataset/modsec_raw_processed.csv \
   --output data/processed/predictions.csv \
   --threshold 0.5
 ```
 
 **Parameters:**
-- `--model` - Path ke model (.joblib)
+- `--model` - Path ke model pickleprocessed.csv \
+  --output data/processed/predictions.csv \
+  --threshold 0.5
+```
+
+**Parameters:**
+- `--model` - Path ke model (.pkl)
 - `--input` - Path ke input file (CSV dengan raw logs)
 - `--output` - Path tempat menyimpan hasil prediksi
 - `--threshold` - Confidence threshold (default: 0.5)
@@ -232,13 +238,14 @@ import pandas as pd
 
 # Setup path
 PROJECT_ROOT = Path(__file__).resolve().parents[0]
-sys.path.insert(0, str(PROJECT_ROOT))
+sys.path.insert(0, str(PROJECT_ROmodsec_xgb
 
 from src.preprocessing.tabular_features import build_tabular_features
-import joblib
+import pickle
 
 # Load model
-model = joblib.load("models/trained_models/tabular_xgboost.joblib")
+with open("models/trained_models/tabular_xgboost.pkl", 'rb') as f:
+    model = pickle.load(f)
 
 # Sample request
 request = {
@@ -362,7 +369,7 @@ python scripts/run_tabular_xgboost.py --dataset data/dataset/modsec_raw_processe
 # Linux: free -h
 ```
 
-### Problem: Model file not found `models/trained_models/tabular_xgboost.joblib`
+### Problem: Model file not found `models/trained_models/tabular_xgboost.pkl`
 ```bash
 # Solution: Generate model first
 python scripts/run_tabular_xgboost.py \
@@ -410,7 +417,7 @@ After successful setup:
 
 3. ✅ **Want to Improve Model?** 
    - Retrain with new data
-   - Adjust hyperparameters in `scripts/run_tabular_xgboost.py`
+   - Adjust hyperparameters in `scripts/run_modsec_training.py`
    - Add new features in `src/preprocessing/tabular_features.py`
 
 4. ✅ **Integration with Backend?**

@@ -3,7 +3,7 @@
 import sys
 from pathlib import Path
 
-import joblib
+import pickle
 import pandas as pd
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -11,7 +11,8 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.preprocessing.tabular_features import build_tabular_features
 
-model = joblib.load("models/trained_models/tabular_xgboost.joblib")
+with open("models/trained_models/modsec_xgb.pkl", 'rb') as f:
+    model = pickle.load(f)
 
 test_cases = [
     {"name": "GET /robots.txt (Normal)", "method": "GET", "uri": "/robots.txt"},

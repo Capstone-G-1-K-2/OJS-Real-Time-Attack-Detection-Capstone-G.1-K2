@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import pickle
 import sys
 from pathlib import Path
 
-import joblib
 import mlflow
 import pandas as pd
 from sklearn.ensemble import RandomForestClassifier
@@ -235,8 +235,9 @@ def main() -> None:
             class_report = classification_report(y_test, y_pred)
             mlflow.log_text(class_report, "classification_report.txt")
 
-            model_path = output_dir / f"{model_name}.joblib"
-            joblib.dump(model, model_path)
+            model_path = output_dir / f"{model_name}.pkl"
+            with open(model_path, 'wb') as f:
+                pickle.dump(model, f)
             mlflow.log_artifact(str(model_path))
 
             row: dict[str, float | str] = {"model": model_name}

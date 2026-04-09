@@ -24,7 +24,7 @@ async def test_single_prediction():
     print("="*50)
     
     pipeline = PredictionPipeline(
-        model_path=str(PROJECT_ROOT / "models/trained_models/modsec_xgb.joblib")
+        model_path=str(PROJECT_ROOT / "models/trained_models/modsec_xgb.pkl")
     )
     
     # Normal request
@@ -69,7 +69,7 @@ async def test_batch_prediction():
     print("="*50)
     
     pipeline = PredictionPipeline(
-        model_path=str(PROJECT_ROOT / "models/trained_models/modsec_xgb.joblib")
+        model_path=str(PROJECT_ROOT / "models/trained_models/modsec_xgb.pkl")
     )
     
     logs = pd.DataFrame([
@@ -124,7 +124,7 @@ def test_models_loaded():
     print("TEST 0: Model Loading")
     print("="*50)
     
-    model_path = PROJECT_ROOT / "models/trained_models/modsec_xgb.joblib"
+    model_path = PROJECT_ROOT / "models/trained_models/modsec_xgb.pkl"
     
     if model_path.exists():
         print(f"✓ Model file exists: {model_path}")

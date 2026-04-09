@@ -5,9 +5,9 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import pickle
 from pathlib import Path
 
-import joblib
 import pandas as pd
 from sklearn.compose import ColumnTransformer
 from sklearn.feature_extraction.text import TfidfVectorizer
@@ -86,7 +86,7 @@ def _compute_metrics(y_true, y_pred, y_prob) -> dict:
 
 def train(
     dataset_path: str,
-    model_output: str = "models/trained_models/modsec_xgb_new.joblib",
+    model_output: str = "models/trained_models/modsec_xgb_new.pkl",
     metrics_output: str = "models/trained_models/modsec_metrics_new.json",
     test_size: float = 0.2,
     random_state: int = 42,
@@ -190,7 +190,8 @@ def train(
 
     # Save model
     Path(model_output).parent.mkdir(parents=True, exist_ok=True)
-    joblib.dump(pipeline, model_output)
+    with open(model_output, 'wb') as f:
+        pickle.dump(pipeline, f)
     print(f"\n[INFO] Model saved to {model_output}")
 
     # Save metrics
@@ -218,8 +219,8 @@ def main() -> None:
     )
     parser.add_argument(
         "--model-output",
-        default="models/trained_models/modsec_xgb.joblib",
-        help="Output path for trained model (joblib).",
+        default="models/trained_models/modsec_xgb.pkl",
+        help="Output path for trained model (pickle).",
     )
     parser.add_argument(
         "--metrics-output",
