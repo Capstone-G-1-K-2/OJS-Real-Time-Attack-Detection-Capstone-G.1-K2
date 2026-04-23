@@ -20,7 +20,9 @@ from sklearn.metrics import (
     recall_score,
     roc_auc_score,
 )
-from sklearn.model_selection import StratifiedKFold, cross_validate, train_test_split
+from sklearn.model_selection import StratifiedKFold, StratifiedShuffleSplit, cross_validate, train_test_split
+from imblearn.over_sampling import SMOTE
+from imblearn.pipeline import Pipeline as ImbPipeline
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder
 from xgboost import XGBClassifier
@@ -33,7 +35,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from src.preprocessing.modsec_parser import load_dataset
 
 
-def _build_pipeline() -> Pipeline:
+def _build_pipeline(use_smote: bool = False, smote_k: int = 5) -> Pipeline:
     """Build preprocessing + XGBoost pipeline."""
     numeric_features = [
         "status",
@@ -70,6 +72,15 @@ def _build_pipeline() -> Pipeline:
         random_state=42,
     )
 
+    if use_smote:
+        return ImbPipeline(
+            steps=[
+                ("preprocess", preprocessor),
+                ("smote", SMOTE(random_state=42, k_neighbors=smote_k)),
+                ("model", model),
+            ]
+        )
+
     return Pipeline(steps=[("preprocess", preprocessor), ("model", model)])
 
 
@@ -92,6 +103,8 @@ def train(
     random_state: int = 42,
     n_splits: int = 5,
     run_cv: bool = True,
+    use_smote: bool = False,
+    cv_method: str = "kfold",
 ) -> dict:
     """Train XGBoost model."""
     print("[INFO] Loading dataset:", dataset_path)
@@ -159,12 +172,27 @@ def train(
         X, y, test_size=test_size, random_state=random_state, stratify=y
     )
 
+    # Determine SMOTE k_neighbors based on minority count
+    smote_k = 5
+    if use_smote:
+        minority_count = y_train.value_counts().min()
+        smote_k = max(1, min(5, minority_count - 1))
+        print(f"[INFO] SMOTE k_neighbors set to {smote_k} based on minority class size {minority_count}.")
+
     # Build pipeline
-    pipeline = _build_pipeline()
+    pipeline = _build_pipeline(use_smote=use_smote, smote_k=smote_k)
 
     if run_cv:
-        print(f"[INFO] Running {n_splits}-fold cross-validation...")
-        cv = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=random_state)
+        print(f"[INFO] Running {n_splits}-fold cross-validation ({cv_method})...")
+        if cv_method == "shuffle":
+            cv = StratifiedShuffleSplit(
+                n_splits=n_splits,
+                test_size=test_size,
+                random_state=random_state,
+            )
+        else:
+            cv = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=random_state)
+
         cv_results = cross_validate(
             pipeline,
             X_train,
@@ -236,7 +264,18 @@ def main() -> None:
     parser.add_argument("--test-size", type=float, default=0.2, help="Test set fraction.")
     parser.add_argument("--random-state", type=int, default=42, help="Random seed.")
     parser.add_argument(
-        "--cv-splits", type=int, default=5, help="Number of CV folds."
+        "--cv-splits", type=int, default=5, help="Number of CV folds or iterations."
+    )
+    parser.add_argument(
+        "--cv-method",
+        choices=["kfold", "shuffle"],
+        default="kfold",
+        help="Cross-validation method: kfold or stratified shuffle split.",
+    )
+    parser.add_argument(
+        "--use-smote",
+        action="store_true",
+        help="Apply SMOTE oversampling to the training set before training.",
     )
     parser.add_argument(
         "--no-cv", action="store_true", help="Skip cross-validation."
@@ -252,6 +291,8 @@ def main() -> None:
         random_state=args.random_state,
         n_splits=args.cv_splits,
         run_cv=not args.no_cv,
+        use_smote=args.use_smote,
+        cv_method=args.cv_method,
     )
 
     print("\n" + "=" * 60)
