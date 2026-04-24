@@ -9,6 +9,8 @@ import pickle
 from pathlib import Path
 
 import pandas as pd
+import mlflow
+import mlflow.sklearn
 from sklearn.compose import ColumnTransformer
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics import (
@@ -105,6 +107,8 @@ def train(
     run_cv: bool = True,
     use_smote: bool = False,
     cv_method: str = "kfold",
+    mlflow_experiment: str = "ojs-modsecurity-attack-detection",
+    mlflow_run_name: str | None = None,
 ) -> dict:
     """Train XGBoost model."""
     print("[INFO] Loading dataset:", dataset_path)
@@ -182,6 +186,7 @@ def train(
     # Build pipeline
     pipeline = _build_pipeline(use_smote=use_smote, smote_k=smote_k)
 
+    cv_results = None
     if run_cv:
         print(f"[INFO] Running {n_splits}-fold cross-validation ({cv_method})...")
         if cv_method == "shuffle":
@@ -223,14 +228,69 @@ def train(
         print(f"  {metric:12}: {value:.4f}")
 
     # Save model
-    Path(model_output).parent.mkdir(parents=True, exist_ok=True)
-    with open(model_output, 'wb') as f:
+    model_path = Path(model_output)
+    model_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(model_path, 'wb') as f:
         pickle.dump(pipeline, f)
-    print(f"\n[INFO] Model saved to {model_output}")
+    print(f"\n[INFO] Model saved to {model_path}")
 
     # Save metrics
+    summary = {
+        "test_metrics": test_metrics,
+        "test_dataset_size": int(len(X_test)),
+        "train_dataset_size": int(len(X_train)),
+        "confusion_matrix": confusion_matrix(y_test, y_test_pred).tolist(),
+    }
+
+    if cv_results is not None:
+        cv_summary = {
+            "n_splits": n_splits,
+            "accuracy_mean": float(cv_results["test_accuracy"].mean()),
+            "accuracy_std": float(cv_results["test_accuracy"].std()),
+            "f1_mean": float(cv_results["test_f1"].mean()),
+            "f1_std": float(cv_results["test_f1"].std()),
+            "precision_mean": float(cv_results["test_precision"].mean()),
+            "precision_std": float(cv_results["test_precision"].std()),
+            "recall_mean": float(cv_results["test_recall"].mean()),
+            "recall_std": float(cv_results["test_recall"].std()),
+            "roc_auc_mean": float(cv_results["test_roc_auc"].mean()),
+            "roc_auc_std": float(cv_results["test_roc_auc"].std()),
+        }
+        summary["cv_metrics"] = cv_summary
+
+    mlflow.set_tracking_uri("mlruns")
+    print(f"[INFO] MLflow tracking URI: {mlflow.get_tracking_uri()}")
+    mlflow.set_experiment(mlflow_experiment)
+    with mlflow.start_run(run_name=mlflow_run_name):
+        mlflow.log_params(
+            {
+                "dataset_path": dataset_path,
+                "test_size": test_size,
+                "random_state": random_state,
+                "use_smote": use_smote,
+                "cv_method": cv_method,
+                "n_splits": n_splits if run_cv else 0,
+                "n_estimators": 300,
+                "max_depth": 6,
+                "learning_rate": 0.05,
+                "subsample": 0.9,
+                "colsample_bytree": 0.9,
+                "objective": "binary:logistic",
+                "eval_metric": "logloss",
+            }
+        )
+        for metric_name, metric_value in test_metrics.items():
+            mlflow.log_metric(f"test_{metric_name}", metric_value)
+        if cv_results is not None:
+            for metric_name in ["accuracy", "f1", "precision", "recall", "roc_auc"]:
+                mlflow.log_metric(f"cv_{metric_name}_mean", summary["cv_metrics"][f"{metric_name}_mean"])
+                mlflow.log_metric(f"cv_{metric_name}_std", summary["cv_metrics"][f"{metric_name}_std"])
+        class_report = classification_report(y_test, y_test_pred)
+        mlflow.log_text(class_report, "classification_report.txt")
+        mlflow.sklearn.log_model(pipeline, "xgboost_pipeline")
+
     with open(metrics_output, "w") as f:
-        json.dump(test_metrics, f, indent=2)
+        json.dump(summary, f, indent=2)
     print(f"[INFO] Metrics saved to {metrics_output}")
 
     # Show confusion matrix
@@ -239,7 +299,7 @@ def train(
     print(f"  TN: {cm[0, 0]}, FP: {cm[0, 1]}")
     print(f"  FN: {cm[1, 0]}, TP: {cm[1, 1]}")
 
-    return test_metrics
+    return summary
 
 
 def main() -> None:
@@ -278,6 +338,16 @@ def main() -> None:
         help="Apply SMOTE oversampling to the training set before training.",
     )
     parser.add_argument(
+        "--mlflow-experiment",
+        default="ojs-modsecurity-attack-detection",
+        help="MLflow experiment name.",
+    )
+    parser.add_argument(
+        "--mlflow-run-name",
+        default=None,
+        help="MLflow run name.",
+    )
+    parser.add_argument(
         "--no-cv", action="store_true", help="Skip cross-validation."
     )
 
@@ -293,6 +363,8 @@ def main() -> None:
         run_cv=not args.no_cv,
         use_smote=args.use_smote,
         cv_method=args.cv_method,
+        mlflow_experiment=args.mlflow_experiment,
+        mlflow_run_name=args.mlflow_run_name,
     )
 
     print("\n" + "=" * 60)
