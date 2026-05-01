@@ -8,11 +8,14 @@ import sys
 import pickle
 from pathlib import Path
 
+import optuna
 import pandas as pd
 import mlflow
 import mlflow.sklearn
 from sklearn.compose import ColumnTransformer
+from sklearn.ensemble import RandomForestClassifier
 from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import (
     accuracy_score,
     classification_report,
@@ -22,7 +25,13 @@ from sklearn.metrics import (
     recall_score,
     roc_auc_score,
 )
-from sklearn.model_selection import StratifiedKFold, StratifiedShuffleSplit, cross_validate, train_test_split
+from sklearn.model_selection import (
+    GridSearchCV,
+    StratifiedKFold,
+    StratifiedShuffleSplit,
+    cross_validate,
+    train_test_split,
+)
 from imblearn.over_sampling import SMOTE
 from imblearn.pipeline import Pipeline as ImbPipeline
 from sklearn.pipeline import Pipeline
@@ -37,7 +46,26 @@ if str(PROJECT_ROOT) not in sys.path:
 from src.preprocessing.modsec_parser import load_dataset
 
 
-def _build_pipeline(use_smote: bool = False, smote_k: int = 5) -> Pipeline:
+def _build_model(random_state: int = 42, device: str = "cpu", **overrides) -> XGBClassifier:
+    base_params = {
+        "n_estimators": 300,
+        "max_depth": 6,
+        "learning_rate": 0.05,
+        "subsample": 0.9,
+        "colsample_bytree": 0.9,
+        "objective": "binary:logistic",
+        "eval_metric": "logloss",
+        "random_state": random_state,
+        "n_jobs": 1,
+        "device": device,
+    }
+    if device == "cuda":
+        base_params["tree_method"] = "hist"
+    base_params.update(overrides)
+    return XGBClassifier(**base_params)
+
+
+def _build_pipeline(model: XGBClassifier | None = None, use_smote: bool = False, smote_k: int = 5) -> Pipeline:
     """Build preprocessing + XGBoost pipeline."""
     numeric_features = [
         "status",
@@ -63,16 +91,8 @@ def _build_pipeline(use_smote: bool = False, smote_k: int = 5) -> Pipeline:
         remainder="drop",
     )
 
-    model = XGBClassifier(
-        n_estimators=300,
-        max_depth=6,
-        learning_rate=0.05,
-        subsample=0.9,
-        colsample_bytree=0.9,
-        objective="binary:logistic",
-        eval_metric="logloss",
-        random_state=42,
-    )
+    if model is None:
+        model = _build_model()
 
     if use_smote:
         return ImbPipeline(
@@ -84,6 +104,139 @@ def _build_pipeline(use_smote: bool = False, smote_k: int = 5) -> Pipeline:
         )
 
     return Pipeline(steps=[("preprocess", preprocessor), ("model", model)])
+
+
+def _suggest_xgb_params(trial: optuna.Trial) -> dict[str, object]:
+    return {
+        "n_estimators": trial.suggest_int("n_estimators", 200, 700, step=50),
+        "max_depth": trial.suggest_int("max_depth", 3, 8),
+        "learning_rate": trial.suggest_float("learning_rate", 0.01, 0.2, log=True),
+        "subsample": trial.suggest_float("subsample", 0.6, 1.0),
+        "colsample_bytree": trial.suggest_float("colsample_bytree", 0.6, 1.0),
+        "min_child_weight": trial.suggest_int("min_child_weight", 1, 10),
+        "gamma": trial.suggest_float("gamma", 0.0, 5.0),
+        "reg_alpha": trial.suggest_float("reg_alpha", 1e-8, 10.0, log=True),
+        "reg_lambda": trial.suggest_float("reg_lambda", 1e-3, 10.0, log=True),
+    }
+
+
+def _run_optuna_search(
+    X_train,
+    y_train,
+    cv,
+    random_state: int,
+    n_trials: int,
+    device: str = "cpu",
+    use_smote: bool = False,
+    smote_k: int = 5,
+):
+    def objective(trial: optuna.Trial) -> float:
+        params = _suggest_xgb_params(trial)
+        model = _build_model(random_state=random_state, device=device, **params)
+        pipeline = _build_pipeline(model=model, use_smote=use_smote, smote_k=smote_k)
+        scores = cross_validate(
+            pipeline,
+            X_train,
+            y_train,
+            cv=cv,
+            scoring=["roc_auc"],
+            n_jobs=1,
+            return_train_score=False,
+        )
+        return float(scores["test_roc_auc"].mean())
+
+    study = optuna.create_study(direction="maximize", sampler=optuna.samplers.TPESampler(seed=random_state))
+    study.optimize(objective, n_trials=n_trials, show_progress_bar=False)
+
+    best_model = _build_model(random_state=random_state, device=device, **study.best_params)
+    return best_model, study
+
+
+def _build_automl_search(use_smote: bool = False, smote_k: int = 5, cv=None) -> GridSearchCV:
+    """Create an AutoML search over candidate models and hyperparameters."""
+    numeric_features = [
+        "status",
+        "bytes_sent",
+        "request_time",
+        "rule_count",
+        "severity_score",
+        "user_agent_len",
+        "uri_len",
+        "has_sqli_pattern",
+        "has_xss_pattern",
+        "has_suspicious_path",
+    ]
+    categorical_features = ["method"]
+    text_feature = "uri"
+
+    preprocessor = ColumnTransformer(
+        transformers=[
+            ("num", "passthrough", numeric_features),
+            ("cat", OneHotEncoder(handle_unknown="ignore"), categorical_features),
+            ("txt", TfidfVectorizer(max_features=300), text_feature),
+        ],
+        remainder="drop",
+    )
+
+    base_pipeline: Pipeline | ImbPipeline
+    if use_smote:
+        base_pipeline = ImbPipeline(
+            steps=[
+                ("preprocess", preprocessor),
+                ("smote", SMOTE(random_state=42, k_neighbors=smote_k)),
+                ("model", LogisticRegression()),
+            ]
+        )
+    else:
+        base_pipeline = Pipeline(
+            steps=[
+                ("preprocess", preprocessor),
+                ("model", LogisticRegression()),
+            ]
+        )
+
+    param_grid = [
+        {
+            "model": [LogisticRegression(max_iter=1000, solver="lbfgs", random_state=42)],
+            "model__C": [0.1, 1.0, 10.0],
+        },
+        {
+            "model": [RandomForestClassifier(random_state=42, n_jobs=1)],
+            "model__n_estimators": [100, 200],
+            "model__max_depth": [None, 8, 16],
+            "model__min_samples_leaf": [1, 3],
+        },
+        {
+            "model": [
+                XGBClassifier(
+                    random_state=42,
+                    use_label_encoder=False,
+                    eval_metric="logloss",
+                    n_jobs=1,
+                )
+            ],
+            "model__n_estimators": [100, 200],
+            "model__max_depth": [4, 6],
+            "model__learning_rate": [0.05, 0.1],
+        },
+    ]
+
+    return GridSearchCV(
+        estimator=base_pipeline,
+        param_grid=param_grid,
+        scoring={
+            "accuracy": "accuracy",
+            "f1": "f1",
+            "precision": "precision",
+            "recall": "recall",
+            "roc_auc": "roc_auc",
+        },
+        refit="roc_auc",
+        cv=cv,
+        n_jobs=-1,
+        verbose=1,
+        return_train_score=False,
+    )
 
 
 def _compute_metrics(y_true, y_pred, y_prob) -> dict:
@@ -106,6 +259,9 @@ def train(
     n_splits: int = 5,
     run_cv: bool = True,
     use_smote: bool = False,
+    use_automl: bool = False,
+    use_optuna: bool = False,
+    optuna_trials: int = 25,
     cv_method: str = "kfold",
     mlflow_experiment: str = "ojs-modsecurity-attack-detection",
     mlflow_run_name: str | None = None,
@@ -183,37 +339,146 @@ def train(
         smote_k = max(1, min(5, minority_count - 1))
         print(f"[INFO] SMOTE k_neighbors set to {smote_k} based on minority class size {minority_count}.")
 
-    # Build pipeline
-    pipeline = _build_pipeline(use_smote=use_smote, smote_k=smote_k)
-
-    cv_results = None
-    if run_cv:
-        print(f"[INFO] Running {n_splits}-fold cross-validation ({cv_method})...")
-        if cv_method == "shuffle":
-            cv = StratifiedShuffleSplit(
-                n_splits=n_splits,
-                test_size=test_size,
-                random_state=random_state,
-            )
-        else:
-            cv = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=random_state)
-
-        cv_results = cross_validate(
-            pipeline,
-            X_train,
-            y_train,
-            cv=cv,
-            scoring=["accuracy", "f1", "precision", "recall", "roc_auc"],
-            return_train_score=False,
+    # Build or search for pipeline
+    cv = None
+    if cv_method == "shuffle":
+        cv = StratifiedShuffleSplit(
+            n_splits=n_splits,
+            test_size=test_size,
+            random_state=random_state,
         )
+    else:
+        cv = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=random_state)
 
-        for metric in ["accuracy", "f1", "precision", "recall", "roc_auc"]:
-            scores = cv_results[f"test_{metric}"]
-            print(f"  {metric:12} - mean: {scores.mean():.4f}, std: {scores.std():.4f}")
+    pipeline = None
+    automl_search = None
+    optuna_search = None
+    optuna_best_params = None
+    optuna_best_value = None
+    training_device = "cuda"
+    used_fallback_device = False
+    cv_results = None
 
-    # Train final model
-    print("[INFO] Training final model...")
-    pipeline.fit(X_train, y_train)
+    if use_optuna:
+        for candidate_device in ["cuda", "cpu"]:
+            try:
+                training_device = candidate_device
+                print(f"[INFO] Running Optuna search with {optuna_trials} trials on {candidate_device}...")
+                optuna_search, study = _run_optuna_search(
+                    X_train=X_train,
+                    y_train=y_train,
+                    cv=cv,
+                    random_state=random_state,
+                    n_trials=optuna_trials,
+                    device=candidate_device,
+                    use_smote=use_smote,
+                    smote_k=smote_k,
+                )
+                optuna_best_params = study.best_params
+                optuna_best_value = float(study.best_value)
+                pipeline = _build_pipeline(model=optuna_search, use_smote=use_smote, smote_k=smote_k)
+                print(f"[INFO] Optuna best ROC-AUC: {optuna_best_value:.4f}")
+                print(f"[INFO] Optuna best params: {optuna_best_params}")
+                if run_cv:
+                    print(f"[INFO] Running {n_splits}-fold cross-validation on Optuna best model ({cv_method})...")
+                    cv_results = cross_validate(
+                        pipeline,
+                        X_train,
+                        y_train,
+                        cv=cv,
+                        scoring=["accuracy", "f1", "precision", "recall", "roc_auc"],
+                        return_train_score=False,
+                    )
+                    for metric in ["accuracy", "f1", "precision", "recall", "roc_auc"]:
+                        scores = cv_results[f"test_{metric}"]
+                        print(f"  {metric:12} - mean: {scores.mean():.4f}, std: {scores.std():.4f}")
+                break
+            except Exception as exc:
+                if candidate_device == "cuda":
+                    used_fallback_device = True
+                    print(f"[WARN] CUDA training failed, falling back to CPU. Reason: {exc}")
+                    continue
+                raise
+
+        if pipeline is None:
+            raise RuntimeError("Gagal membuat pipeline training untuk Optuna.")
+
+        for candidate_device in [training_device, "cpu"]:
+            try:
+                if candidate_device != training_device:
+                    used_fallback_device = True
+                    training_device = candidate_device
+                    print(f"[WARN] Refitting best Optuna model on CPU after GPU failure.")
+                    pipeline = _build_pipeline(
+                        model=_build_model(random_state=random_state, device=candidate_device, **(optuna_best_params or {})),
+                        use_smote=use_smote,
+                        smote_k=smote_k,
+                    )
+
+                print(f"[INFO] Training final Optuna model on {candidate_device}...")
+                pipeline.fit(X_train, y_train)
+                break
+            except Exception as exc:
+                if candidate_device == "cuda":
+                    used_fallback_device = True
+                    print(f"[WARN] Final CUDA fit failed, falling back to CPU. Reason: {exc}")
+                    continue
+                raise
+    elif use_automl:
+        print("[INFO] Running AutoML search across candidate models...")
+        automl_search = _build_automl_search(use_smote=use_smote, smote_k=smote_k, cv=cv)
+        automl_search.fit(X_train, y_train)
+        pipeline = automl_search.best_estimator_
+
+        print(f"[INFO] AutoML selected best model: {type(pipeline.named_steps['model']).__name__}")
+        print(f"[INFO] AutoML best params: {automl_search.best_params_}")
+        if run_cv:
+            print(f"[INFO] Running {n_splits}-fold cross-validation on AutoML best model ({cv_method})...")
+            cv_results = cross_validate(
+                pipeline,
+                X_train,
+                y_train,
+                cv=cv,
+                scoring=["accuracy", "f1", "precision", "recall", "roc_auc"],
+                return_train_score=False,
+            )
+            for metric in ["accuracy", "f1", "precision", "recall", "roc_auc"]:
+                scores = cv_results[f"test_{metric}"]
+                print(f"  {metric:12} - mean: {scores.mean():.4f}, std: {scores.std():.4f}")
+    else:
+        for candidate_device in ["cuda", "cpu"]:
+            try:
+                training_device = candidate_device
+                pipeline = _build_pipeline(
+                    model=_build_model(random_state=random_state, device=candidate_device),
+                    use_smote=use_smote,
+                    smote_k=smote_k,
+                )
+                if run_cv:
+                    print(f"[INFO] Running {n_splits}-fold cross-validation ({cv_method}) on {candidate_device}...")
+                    cv_results = cross_validate(
+                        pipeline,
+                        X_train,
+                        y_train,
+                        cv=cv,
+                        scoring=["accuracy", "f1", "precision", "recall", "roc_auc"],
+                        return_train_score=False,
+                    )
+                    for metric in ["accuracy", "f1", "precision", "recall", "roc_auc"]:
+                        scores = cv_results[f"test_{metric}"]
+                        print(f"  {metric:12} - mean: {scores.mean():.4f}, std: {scores.std():.4f}")
+
+                print(f"[INFO] Training final model on {candidate_device}...")
+                pipeline.fit(X_train, y_train)
+                break
+            except Exception as exc:
+                if candidate_device == "cuda":
+                    used_fallback_device = True
+                    print(f"[WARN] CUDA training failed, falling back to CPU. Reason: {exc}")
+                    continue
+                raise
+        if pipeline is None:
+            raise RuntimeError("Gagal membuat pipeline training.")
 
     # Evaluate on test set
     y_test_pred = pipeline.predict(X_test)
@@ -240,7 +505,18 @@ def train(
         "test_dataset_size": int(len(X_test)),
         "train_dataset_size": int(len(X_train)),
         "confusion_matrix": confusion_matrix(y_test, y_test_pred).tolist(),
+        "use_automl": use_automl,
+        "use_optuna": use_optuna,
+        "training_device": training_device,
+        "used_fallback_device": used_fallback_device,
     }
+    if use_automl and automl_search is not None:
+        summary["automl_best_params"] = automl_search.best_params_
+        summary["automl_best_model"] = type(pipeline.named_steps["model"]).__name__
+    if use_optuna and optuna_search is not None:
+        summary["optuna_best_value"] = optuna_best_value
+        summary["optuna_best_params"] = optuna_best_params
+        summary["optuna_best_model"] = type(pipeline.named_steps["model"]).__name__
 
     if cv_results is not None:
         cv_summary = {
@@ -262,23 +538,38 @@ def train(
     print(f"[INFO] MLflow tracking URI: {mlflow.get_tracking_uri()}")
     mlflow.set_experiment(mlflow_experiment)
     with mlflow.start_run(run_name=mlflow_run_name):
-        mlflow.log_params(
-            {
-                "dataset_path": dataset_path,
-                "test_size": test_size,
-                "random_state": random_state,
-                "use_smote": use_smote,
-                "cv_method": cv_method,
-                "n_splits": n_splits if run_cv else 0,
-                "n_estimators": 300,
-                "max_depth": 6,
-                "learning_rate": 0.05,
-                "subsample": 0.9,
-                "colsample_bytree": 0.9,
-                "objective": "binary:logistic",
-                "eval_metric": "logloss",
-            }
-        )
+        params = {
+            "dataset_path": dataset_path,
+            "test_size": test_size,
+            "random_state": random_state,
+            "use_smote": use_smote,
+            "use_automl": use_automl,
+            "use_optuna": use_optuna,
+            "training_device": training_device,
+            "used_fallback_device": used_fallback_device,
+            "cv_method": cv_method,
+            "n_splits": n_splits if run_cv else 0,
+        }
+        if use_automl and automl_search is not None:
+            params["automl_best_model"] = type(pipeline.named_steps["model"]).__name__
+            params["automl_best_params"] = json.dumps(automl_search.best_params_, default=str)
+        elif use_optuna and optuna_search is not None:
+            params["optuna_best_model"] = type(pipeline.named_steps["model"]).__name__
+            params["optuna_best_value"] = optuna_best_value
+            params["optuna_best_params"] = json.dumps(optuna_best_params, default=str)
+        else:
+            params.update(
+                {
+                    "n_estimators": 300,
+                    "max_depth": 6,
+                    "learning_rate": 0.05,
+                    "subsample": 0.9,
+                    "colsample_bytree": 0.9,
+                    "objective": "binary:logistic",
+                    "eval_metric": "logloss",
+                }
+            )
+        mlflow.log_params(params)
         for metric_name, metric_value in test_metrics.items():
             mlflow.log_metric(f"test_{metric_name}", metric_value)
         if cv_results is not None:
@@ -287,7 +578,8 @@ def train(
                 mlflow.log_metric(f"cv_{metric_name}_std", summary["cv_metrics"][f"{metric_name}_std"])
         class_report = classification_report(y_test, y_test_pred)
         mlflow.log_text(class_report, "classification_report.txt")
-        mlflow.sklearn.log_model(pipeline, "xgboost_pipeline")
+        model_name = type(pipeline.named_steps["model"]).__name__ if "model" in pipeline.named_steps else "pipeline"
+        mlflow.sklearn.log_model(pipeline, f"{model_name}_pipeline")
 
     with open(metrics_output, "w") as f:
         json.dump(summary, f, indent=2)
@@ -338,6 +630,22 @@ def main() -> None:
         help="Apply SMOTE oversampling to the training set before training.",
     )
     parser.add_argument(
+        "--auto-ml",
+        action="store_true",
+        help="Run AutoML search to select the best model and hyperparameters.",
+    )
+    parser.add_argument(
+        "--use-optuna",
+        action="store_true",
+        help="Run Optuna tuning for the XGBoost model on ModSecurity features.",
+    )
+    parser.add_argument(
+        "--optuna-trials",
+        type=int,
+        default=25,
+        help="Number of Optuna trials to run.",
+    )
+    parser.add_argument(
         "--mlflow-experiment",
         default="ojs-modsecurity-attack-detection",
         help="MLflow experiment name.",
@@ -362,6 +670,9 @@ def main() -> None:
         n_splits=args.cv_splits,
         run_cv=not args.no_cv,
         use_smote=args.use_smote,
+        use_automl=args.auto_ml,
+        use_optuna=args.use_optuna,
+        optuna_trials=args.optuna_trials,
         cv_method=args.cv_method,
         mlflow_experiment=args.mlflow_experiment,
         mlflow_run_name=args.mlflow_run_name,

@@ -1,4 +1,4 @@
-mlflow
+mlflow==3.11.1
 matplotlib
 seaborn
 annotated-doc==0.0.4
@@ -13,8 +13,8 @@ httpx==0.28.1
 idna==3.11
 joblib==1.5.3  # Note: Some sklearn components may use joblib internally, but we use pickle for model serialization
 numpy==2.4.4
-nvidia-nccl-cu12==2.29.7
-pandas==3.0.2
+nvidia-nccl-cu12==2.29.7; platform_system == "Linux"
+pandas==2.2.3
 pydantic==2.12.5
 pydantic_core==2.41.5
 python-dateutil==2.9.0.post0
@@ -30,3 +30,5 @@ typing_extensions==4.15.0
 uvicorn==0.42.0
 watchdog==6.0.0
 xgboost==3.2.0
+imbalanced-learn==0.14.1
+optuna==4.3.0

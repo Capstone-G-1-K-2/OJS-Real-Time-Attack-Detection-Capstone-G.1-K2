@@ -72,25 +72,26 @@ def main() -> None:
 
     print(f"[INFO] Dataset shape: {X.shape}, Class distribution: {y.value_counts().to_dict()}", flush=True)
 
-    # Separate features for preprocessing
+    X_train, X_test, y_train, y_test = train_test_split(
+        X,
+        y,
+        test_size=args.test_size,
+        random_state=args.random_state,
+        stratify=y,
+    )
+
     cat_cols = ["method"] if "method" in X.columns else []
     text_col = "uri" if "uri" in X.columns else None
     num_cols = [c for c in X.columns if c not in cat_cols and c != text_col]
 
-    # Build transformers (same as training pipeline)
     transformers = [
         ("num", "passthrough", num_cols),
         ("cat", OneHotEncoder(handle_unknown="ignore"), cat_cols),
     ]
-    
-    # Add TF-IDF for text if uri column exists
     if text_col:
         transformers.append(("txt", TfidfVectorizer(max_features=300), text_col))
 
-    preprocessor = ColumnTransformer(
-        transformers=transformers,
-        remainder="drop",
-    )
+    preprocessor = ColumnTransformer(transformers=transformers, remainder="drop")
 
     model = XGBClassifier(
         n_estimators=400,
@@ -107,14 +108,6 @@ def main() -> None:
         ("preprocess", preprocessor),
         ("model", model),
     ])
-
-    X_train, X_test, y_train, y_test = train_test_split(
-        X,
-        y,
-        test_size=args.test_size,
-        random_state=args.random_state,
-        stratify=y,
-    )
 
     print("[INFO] Training tabular XGBoost...", flush=True)
     pipeline.fit(X_train, y_train)
