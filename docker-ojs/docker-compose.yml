@@ -5,6 +5,8 @@ networks:
 services:
   db:
     image: mariadb:11.4
+    ports:
+      - "3307:3306"
     env_file:
       - .env
     container_name: "ojs_db_${COMPOSE_PROJECT_NAME:-demo}"
@@ -37,7 +39,7 @@ services:
       - ./volumes/public:/var/www/html/public
       - ./volumes/logs/app:/var/log/apache2
 #      # WARNING: You can only enable file-volumes if file exists in the container.
-      #- ./volumes/config/ojs.config.inc.php:/var/www/html/config.inc.php
+      - ./volumes/config/ojs.config.inc.php:/var/www/html/config.inc.php
 #      - ./volumes/config/apache.htaccess:/var/www/html/.htaccess
 #      - ./volumes/php.custom.ini:/usr/local/etc/php/conf.d/custom.ini
 
@@ -45,4 +47,51 @@ services:
       - inside
     depends_on:
       - db
+    restart: unless-stopped
+
+  waf:
+    image: owasp/modsecurity-crs:nginx
+    container_name: ojs_waf
+
+    ports:
+      - "8080:8080"
+
+    environment:
+      PROXY: "1"
+      BACKEND: "http://ojs:80"
+
+      PARANOIA: "1"
+      ANOMALY_INBOUND: "5"
+      ANOMALY_OUTBOUND: "4"
+
+      SERVER_NAME: localhost
+      PORT: "8080"
+
+      PROXY_SSL: "off"
+      REAL_IP_HEADER: "X-Forwarded-For"
+      PROXY_PRESERVE_HOST: "on"
+
+      MODSEC_RULE_ENGINE: "DetectionOnly"
+
+      MODSEC_AUDIT_ENGINE: "On"
+      MODSEC_AUDIT_LOG_RELEVANT_STATUS: ".*"
+      MODSEC_AUDIT_LOG: "/var/log/modsecurity/audit.log"
+      MODSEC_AUDIT_LOG_FORMAT: "JSON"
+      MODSEC_AUDIT_LOG_PARTS: "ABIJDEFHZ"
+
+      MODSEC_DEBUG_LOG: "/var/log/modsecurity/debug.log"
+      MODSEC_DEBUG_LOGLEVEL: "3"
+
+    volumes:
+      - ./volumes/logs/modsecurity:/var/log/modsecurity
+      - ./volumes/config/waf/proxy_backend.conf.template:/etc/nginx/templates/includes/proxy_backend.conf.template
+      - ./volumes/logs/nginx:/var/log/nginx
+      - ./volumes/config/waf/exclusions.conf:/etc/modsecurity.d/owasp-crs/rules/ZZZZZ-exclusions.conf
+
+    depends_on:
+      - ojs
+
+    networks:
+      - inside
+
     restart: unless-stopped
