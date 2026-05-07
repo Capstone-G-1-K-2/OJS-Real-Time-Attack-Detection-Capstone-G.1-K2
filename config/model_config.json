@@ -1,0 +1,48 @@
+{
+  "model": {
+    "name": "modsec_xgb",
+    "version": "1.0",
+    "description": "XGBoost classifier for OJS attack detection"
+  },
+  "inference": {
+    "threshold": 0.5,
+    "comment": "Decision boundary for attack classification. See docs/THRESHOLD_TUNING.md for options"
+  },
+  "hyperparameters": {
+    "n_estimators": 250,
+    "max_depth": 8,
+    "learning_rate": 0.11574739864375864,
+    "subsample": 0.9636121538251221,
+    "colsample_bytree": 0.8541162216307244,
+    "min_child_weight": 1,
+    "gamma": 0.19049508659749256,
+    "reg_alpha": 4.7037638395710424e-05,
+    "reg_lambda": 0.03328526134161072
+  },
+  "training": {
+    "test_size": 0.2,
+    "random_state": 42,
+    "n_splits": 5,
+    "use_optuna": true,
+    "optuna_trials": 200,
+    "comment": "Aggressive tuning: 200 trials (vs 50 baseline). GPU-accelerated search."
+  },
+  "hyperparameter_search_space": {
+    "learning_rate": {"min": 0.001, "max": 0.3, "log": true},
+    "max_depth": {"min": 3, "max": 12},
+    "n_estimators": {"min": 100, "max": 1000, "step": 50},
+    "subsample": {"min": 0.5, "max": 1.0},
+    "colsample_bytree": {"min": 0.5, "max": 1.0},
+    "gamma": {"min": 0.0, "max": 10.0},
+    "reg_alpha": {"min": 1e-8, "max": 100.0, "log": true},
+    "reg_lambda": {"min": 1e-3, "max": 100.0, "log": true},
+    "comment": "Expanded search space for aggressive tuning (vs baseline)"
+  },
+  "performance": {
+    "test_roc_auc": 0.9538,
+    "test_f1": 0.8223,
+    "test_precision": 0.8718,
+    "test_recall": 0.7780,
+    "test_accuracy": 0.8638
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "raw_directories": [
+    "data/raw"
+  ],
+  "file_patterns": [
+    "audit.log",
+    "audit.json",
+    "*.json",
+    "*/audit.log",
+    "*/audit.json",
+    "*/modsec_audit.json"
+  ],
+  "exclude_patterns": [
+    "*.bak",
+    ".tmp",
+    ".DS_Store"
+  ],
+  "enabled": true
+}
