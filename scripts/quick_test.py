@@ -375,8 +375,6 @@ for test in test_cases:
     })
     
     # Add missing columns with defaults
-    if "rule_count" not in df_test.columns:
-        df_test["rule_count"] = 0
     if "has_suspicious_path" not in df_test.columns:
         df_test["has_suspicious_path"] = 0
     if "has_path_traversal" not in df_test.columns:
@@ -384,9 +382,27 @@ for test in test_cases:
     if "has_command_injection" not in df_test.columns:
         df_test["has_command_injection"] = 0
     
-    # Drop rule_id if it exists (not in model features)
+    # Add CVE-specific features with defaults
+    if "has_cve_2022_24181" not in df_test.columns:
+        df_test["has_cve_2022_24181"] = 0
+    if "missing_csrf_token" not in df_test.columns:
+        df_test["missing_csrf_token"] = 0
+    if "has_suspicious_referer" not in df_test.columns:
+        df_test["has_suspicious_referer"] = 0
+    if "has_cve_2024_xss_privesc" not in df_test.columns:
+        df_test["has_cve_2024_xss_privesc"] = 0
+    if "has_privesc_attempt" not in df_test.columns:
+        df_test["has_privesc_attempt"] = 0
+    if "has_cve_2021_32626" not in df_test.columns:
+        df_test["has_cve_2021_32626"] = 0
+    
+    # Drop columns not in model features
     if "rule_id" in df_test.columns:
         df_test = df_test.drop(columns=["rule_id"])
+    if "rule_count" in df_test.columns:
+        df_test = df_test.drop(columns=["rule_count"])
+    if "severity_score" in df_test.columns:
+        df_test = df_test.drop(columns=["severity_score"])
     
     # Get predictions
     try:

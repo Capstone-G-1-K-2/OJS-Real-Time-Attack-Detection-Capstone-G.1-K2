@@ -48,8 +48,26 @@ def _extract_severity_from_message(message: str) -> str:
 
 
 def _severity_to_score(severity: str) -> int:
-    """Convert severity string to numeric score."""
-    mapping = {
+    """Convert severity string to numeric score.
+    
+    Handles both:
+    - Text format: 'EMERGENCY', 'CRITICAL', 'ERROR', etc.
+    - Numeric format: '0', '1', '2', '3', '4', '5'
+    """
+    if not severity:
+        return 0
+    
+    severity_str = str(severity).strip().upper()
+    
+    # Try numeric first (ModSecurity uses 0-5)
+    try:
+        numeric_val = int(severity_str)
+        return min(max(numeric_val, 0), 5)  # Clamp to 0-5 range
+    except ValueError:
+        pass
+    
+    # Try text mapping
+    text_mapping = {
         "EMERGENCY": 5,
         "ALERT": 5,
         "CRITICAL": 4,
@@ -59,7 +77,7 @@ def _severity_to_score(severity: str) -> int:
         "INFO": 0,
         "DEBUG": 0,
     }
-    return mapping.get((severity or "").upper(), 0)
+    return text_mapping.get(severity_str, 0)
 
 
 def _contains_pattern(text: str, patterns: list[str]) -> int:
@@ -103,6 +121,7 @@ def _extract_from_json_transaction(tx: dict[str, Any]) -> dict[str, Any]:
         "matched_data": "",
         "msg": "",
         "is_blocked": False,
+        "rule_count": 0,
         "has_sqli": 0,
         "has_xss": 0,
         "has_suspicious_path": 0,
@@ -147,6 +166,8 @@ def _extract_from_json_transaction(tx: dict[str, Any]) -> dict[str, Any]:
         
         # Extract messages and check if blocked
         messages = tx.get("messages", [])
+        row["rule_count"] = len(messages)  # COUNT of triggered rules
+        
         if isinstance(messages, list) and len(messages) > 0:
             # Flag sebagai attack jika ada messages
             row["label"] = 1
@@ -203,10 +224,15 @@ def _extract_from_json_transaction(tx: dict[str, Any]) -> dict[str, Any]:
         host_header = request.get("headers", {}).get("Host", "")
         row["has_cve_2022_24181"] = _contains_pattern(host_header, HOST_HEADER_XSS_PATTERNS)
         
-        # CVE-2023-6671: CSRF (detect missing/suspicious CSRF tokens)
-        row["missing_csrf_token"] = 0 if _contains_pattern(full_text, CSRF_PATTERNS) else 1
-        referer = request.get("headers", {}).get("Referer", "-")
-        row["has_suspicious_referer"] = 1 if referer == "-" or referer == "" else 0
+        # CVE-2023-6671: CSRF (detect missing CSRF tokens in POST requests)
+        # Only flag as missing if: POST request AND no CSRF pattern found
+        is_post = row["method"].upper() == "POST"
+        has_csrf_pattern = _contains_pattern(full_text, CSRF_PATTERNS)
+        row["missing_csrf_token"] = 1 if (is_post and not has_csrf_pattern) else 0
+        
+        # Suspicious Referer (only for POST requests - GET requests usually lack Referer)
+        referer = request.get("headers", {}).get("Referer", "")
+        row["has_suspicious_referer"] = 1 if (is_post and (not referer or referer == "-")) else 0
         
         # CVE-2024-25434/36/38: XSS + Privilege Escalation
         has_xss = _contains_pattern(full_text, XSS_PATTERNS)

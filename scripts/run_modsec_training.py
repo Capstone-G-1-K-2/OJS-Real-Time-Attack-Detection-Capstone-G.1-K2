@@ -73,8 +73,6 @@ def _build_pipeline(model: XGBClassifier | None = None, use_smote: bool = False,
         "status",
         "bytes_sent",
         "request_time",
-        "rule_count",
-        "severity_score",
         "user_agent_len",
         "uri_len",
         "has_sqli_pattern",
@@ -221,8 +219,6 @@ def _build_automl_search(use_smote: bool = False, smote_k: int = 5, cv=None) -> 
         "status",
         "bytes_sent",
         "request_time",
-        "rule_count",
-        "severity_score",
         "user_agent_len",
         "uri_len",
         "has_sqli_pattern",
@@ -360,8 +356,6 @@ def train(
     df = df.rename(columns={k: v for k, v in column_mapping.items() if k in df.columns})
 
     # Add missing columns with defaults
-    if "rule_count" not in df.columns:
-        df["rule_count"] = 0
     if "has_suspicious_path" not in df.columns:
         df["has_suspicious_path"] = 0
     if "has_sqli_pattern" not in df.columns:
@@ -379,8 +373,6 @@ def train(
         "status",
         "bytes_sent",
         "request_time",
-        "rule_count",
-        "severity_score",
         "user_agent_len",
         "uri_len",
         "has_sqli_pattern",

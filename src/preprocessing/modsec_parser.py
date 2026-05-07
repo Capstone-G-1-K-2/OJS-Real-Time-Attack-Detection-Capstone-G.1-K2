@@ -36,10 +36,26 @@ def _safe_float(value: Any, default: float = 0.0) -> float:
 
 
 def _severity_to_score(severity: str | None) -> int:
+    """Convert severity string to numeric score.
+    
+    Handles both:
+    - Text format: 'EMERGENCY', 'CRITICAL', 'ERROR', etc.
+    - Numeric format: '0', '1', '2', '3', '4', '5'
+    """
     if not severity:
         return 0
 
-    mapping = {
+    severity_str = str(severity).strip().upper()
+    
+    # Try numeric first (ModSecurity uses 0-5)
+    try:
+        numeric_val = int(severity_str)
+        return min(max(numeric_val, 0), 5)  # Clamp to 0-5 range
+    except ValueError:
+        pass
+    
+    # Try text mapping
+    text_mapping = {
         "EMERGENCY": 5,
         "ALERT": 5,
         "CRITICAL": 4,
@@ -49,7 +65,7 @@ def _severity_to_score(severity: str | None) -> int:
         "INFO": 0,
         "DEBUG": 0,
     }
-    return mapping.get(str(severity).upper(), 0)
+    return text_mapping.get(severity_str, 0)
 
 
 def _contains_pattern(text: str, patterns: list[str]) -> int:
@@ -106,6 +122,11 @@ def parse_modsecurity_jsonl(file_path: str | Path) -> pd.DataFrame:
                 default=0,
             )
 
+            # Check if POST request for CSRF/Referer checks
+            is_post = method.upper() == "POST"
+            has_csrf_pattern = _contains_pattern(full_text, CSRF_PATTERNS)
+            referer = payload.get("transaction", {}).get("request", {}).get("headers", {}).get("Referer", "")
+            
             row = {
                 "source_file": path.name,
                 "line_number": line_number,
@@ -128,8 +149,8 @@ def parse_modsecurity_jsonl(file_path: str | Path) -> pd.DataFrame:
                     str(payload.get("transaction", {}).get("request", {}).get("headers", {}).get("Host", "")),
                     HOST_HEADER_XSS_PATTERNS
                 ),
-                "missing_csrf_token": 0 if _contains_pattern(full_text, CSRF_PATTERNS) else 1,
-                "has_suspicious_referer": 1 if payload.get("transaction", {}).get("request", {}).get("headers", {}).get("Referer", "-") == "-" else 0,
+                "missing_csrf_token": 1 if (is_post and not has_csrf_pattern) else 0,
+                "has_suspicious_referer": 1 if (is_post and (not referer or referer == "-")) else 0,
                 "has_privesc_attempt": _contains_pattern(full_text, PRIVESC_PATTERNS),
                 "has_cve_2024_xss_privesc": 1 if (_contains_pattern(full_text, XSS_PATTERNS) and _contains_pattern(full_text, PRIVESC_PATTERNS)) else 0,
                 "has_cve_2021_32626": 1 if (_contains_pattern(uri, EXECUTABLE_EXTENSIONS) or _contains_pattern(uri, FILE_UPLOAD_BYPASS_PATTERNS)) else 0,
