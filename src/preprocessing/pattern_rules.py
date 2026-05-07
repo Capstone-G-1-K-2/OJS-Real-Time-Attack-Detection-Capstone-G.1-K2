@@ -64,3 +64,62 @@ COMMAND_INJECTION_PATTERNS = [
     r"&\s*cat\s+",  # & cat
     r">\s*/dev/null",  # redirect to /dev/null (cleanup)
 ]
+
+# ============ CVE-SPECIFIC DETECTION PATTERNS ============
+
+# CVE-2022-24181: XSS via Host Header injection (2.4.8 - 3.3.8)
+HOST_HEADER_XSS_PATTERNS = [
+    r"<script",
+    r"javascript:",
+    r"onerror\s*=",
+    r"onload\s*=",
+    r"alert\s*\(",
+    r"eval\s*\(",
+    r"expression\s*\(",
+]
+
+# CVE-2023-6671: CSRF detection patterns (3.3.0.13)
+CSRF_PATTERNS = [
+    r"csrftoken",
+    r"csrf_token",
+    r"authenticity_token",
+    r"__RequestVerificationToken",
+]
+
+# CVE-2024-25434/36/38: XSS + Privilege Escalation patterns (< 3.3.0.17)
+PRIVESC_PATTERNS = [
+    r"role\s*=\s*admin",
+    r"role\s*=\s*manager",
+    r"role_id\s*=\s*1",
+    r"privilege\s*=\s*admin",
+    r"author_to_admin",
+    r"escalate",
+    r"promote",
+]
+
+# CVE-2021-32626: RCE via arbitrary file upload (< 2.3.7)
+EXECUTABLE_EXTENSIONS = [
+    r"\.php",
+    r"\.php3",
+    r"\.php4",
+    r"\.php5",
+    r"\.phtml",
+    r"\.jsp",
+    r"\.jspx",
+    r"\.py",
+    r"\.sh",
+    r"\.exe",
+    r"\.dll",
+    r"\.so",
+]
+
+FILE_UPLOAD_BYPASS_PATTERNS = [
+    r"\.php%00",  # null byte
+    r"\.php\.jpg",  # double extension
+    r"\.php\.png",
+    r"\.php\.gif",
+    r"\.php\.txt",
+    r"%2ephp",  # URL encoded .php
+    r"\.jpg\.php",  # extension confusion
+    r"\.gif\.php",
+]

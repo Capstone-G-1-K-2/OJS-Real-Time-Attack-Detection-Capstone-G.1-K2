@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import pickle
 from pathlib import Path
@@ -44,6 +45,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.preprocessing.modsec_parser import load_dataset
+from src.utils.config import get_config
 
 
 def _build_model(random_state: int = 42, device: str = "cpu", **overrides) -> XGBClassifier:
@@ -78,6 +80,14 @@ def _build_pipeline(model: XGBClassifier | None = None, use_smote: bool = False,
         "has_sqli_pattern",
         "has_xss_pattern",
         "has_suspicious_path",
+        "has_path_traversal",
+        "has_command_injection",
+        "has_cve_2022_24181",
+        "missing_csrf_token",
+        "has_suspicious_referer",
+        "has_cve_2024_xss_privesc",
+        "has_privesc_attempt",
+        "has_cve_2021_32626",
     ]
     categorical_features = ["method"]
     text_feature = "uri"
@@ -106,7 +116,59 @@ def _build_pipeline(model: XGBClassifier | None = None, use_smote: bool = False,
     return Pipeline(steps=[("preprocess", preprocessor), ("model", model)])
 
 
-def _suggest_xgb_params(trial: optuna.Trial) -> dict[str, object]:
+def _suggest_xgb_params(trial: optuna.Trial, config=None) -> dict[str, object]:
+    # Use aggressive search space from config if available
+    if config and "hyperparameter_search_space" in config.config:
+        space = config.config["hyperparameter_search_space"]
+        return {
+            "n_estimators": trial.suggest_int(
+                "n_estimators",
+                space.get("n_estimators", {}).get("min", 100),
+                space.get("n_estimators", {}).get("max", 1000),
+                step=space.get("n_estimators", {}).get("step", 50),
+            ),
+            "max_depth": trial.suggest_int(
+                "max_depth",
+                space.get("max_depth", {}).get("min", 3),
+                space.get("max_depth", {}).get("max", 12),
+            ),
+            "learning_rate": trial.suggest_float(
+                "learning_rate",
+                space.get("learning_rate", {}).get("min", 0.001),
+                space.get("learning_rate", {}).get("max", 0.3),
+                log=space.get("learning_rate", {}).get("log", True),
+            ),
+            "subsample": trial.suggest_float(
+                "subsample",
+                space.get("subsample", {}).get("min", 0.5),
+                space.get("subsample", {}).get("max", 1.0),
+            ),
+            "colsample_bytree": trial.suggest_float(
+                "colsample_bytree",
+                space.get("colsample_bytree", {}).get("min", 0.5),
+                space.get("colsample_bytree", {}).get("max", 1.0),
+            ),
+            "min_child_weight": trial.suggest_int("min_child_weight", 1, 10),
+            "gamma": trial.suggest_float(
+                "gamma",
+                space.get("gamma", {}).get("min", 0.0),
+                space.get("gamma", {}).get("max", 10.0),
+            ),
+            "reg_alpha": trial.suggest_float(
+                "reg_alpha",
+                space.get("reg_alpha", {}).get("min", 1e-8),
+                space.get("reg_alpha", {}).get("max", 100.0),
+                log=space.get("reg_alpha", {}).get("log", True),
+            ),
+            "reg_lambda": trial.suggest_float(
+                "reg_lambda",
+                space.get("reg_lambda", {}).get("min", 1e-3),
+                space.get("reg_lambda", {}).get("max", 100.0),
+                log=space.get("reg_lambda", {}).get("log", True),
+            ),
+        }
+    
+    # Fallback to baseline search space
     return {
         "n_estimators": trial.suggest_int("n_estimators", 200, 700, step=50),
         "max_depth": trial.suggest_int("max_depth", 3, 8),
@@ -129,9 +191,10 @@ def _run_optuna_search(
     device: str = "cpu",
     use_smote: bool = False,
     smote_k: int = 5,
+    config=None,
 ):
     def objective(trial: optuna.Trial) -> float:
-        params = _suggest_xgb_params(trial)
+        params = _suggest_xgb_params(trial, config=config)
         model = _build_model(random_state=random_state, device=device, **params)
         pipeline = _build_pipeline(model=model, use_smote=use_smote, smote_k=smote_k)
         scores = cross_validate(
@@ -165,6 +228,14 @@ def _build_automl_search(use_smote: bool = False, smote_k: int = 5, cv=None) -> 
         "has_sqli_pattern",
         "has_xss_pattern",
         "has_suspicious_path",
+        "has_path_traversal",
+        "has_command_injection",
+        "has_cve_2022_24181",
+        "missing_csrf_token",
+        "has_suspicious_referer",
+        "has_cve_2024_xss_privesc",
+        "has_privesc_attempt",
+        "has_cve_2021_32626",
     ]
     categorical_features = ["method"]
     text_feature = "uri"
@@ -265,6 +336,8 @@ def train(
     cv_method: str = "kfold",
     mlflow_experiment: str = "ojs-modsecurity-attack-detection",
     mlflow_run_name: str | None = None,
+    threshold: float = 0.5,
+    config=None,
 ) -> dict:
     """Train XGBoost model."""
     print("[INFO] Loading dataset:", dataset_path)
@@ -373,6 +446,7 @@ def train(
                     device=candidate_device,
                     use_smote=use_smote,
                     smote_k=smote_k,
+                    config=config,
                 )
                 optuna_best_params = study.best_params
                 optuna_best_value = float(study.best_value)
@@ -481,8 +555,14 @@ def train(
             raise RuntimeError("Gagal membuat pipeline training.")
 
     # Evaluate on test set
-    y_test_pred = pipeline.predict(X_test)
     y_test_prob = pipeline.predict_proba(X_test)[:, 1]
+    
+    # Apply custom threshold (default 0.5 = sklearn default)
+    if threshold != 0.5:
+        print(f"[INFO] Using custom threshold: {threshold}")
+        y_test_pred = (y_test_prob >= threshold).astype(int)
+    else:
+        y_test_pred = pipeline.predict(X_test)
 
     test_metrics = _compute_metrics(y_test, y_test_pred, y_test_prob)
 
@@ -509,6 +589,7 @@ def train(
         "use_optuna": use_optuna,
         "training_device": training_device,
         "used_fallback_device": used_fallback_device,
+        "threshold": float(threshold),
     }
     if use_automl and automl_search is not None:
         summary["automl_best_params"] = automl_search.best_params_
@@ -549,6 +630,7 @@ def train(
             "used_fallback_device": used_fallback_device,
             "cv_method": cv_method,
             "n_splits": n_splits if run_cv else 0,
+            "threshold": threshold,
         }
         if use_automl and automl_search is not None:
             params["automl_best_model"] = type(pipeline.named_steps["model"]).__name__
@@ -595,6 +677,11 @@ def train(
 
 
 def main() -> None:
+    # Load config (will use defaults if not customized)
+    config = get_config()
+    default_threshold = config.get_threshold()
+    default_optuna_trials = config.config.get("training", {}).get("optuna_trials", 25)
+    
     parser = argparse.ArgumentParser(
         description="Train XGBoost model on ModSecurity dataset (modsec baseline)."
     )
@@ -642,8 +729,8 @@ def main() -> None:
     parser.add_argument(
         "--optuna-trials",
         type=int,
-        default=25,
-        help="Number of Optuna trials to run.",
+        default=default_optuna_trials,
+        help=f"Number of Optuna trials to run. Default: {default_optuna_trials} (from config).",
     )
     parser.add_argument(
         "--mlflow-experiment",
@@ -658,8 +745,23 @@ def main() -> None:
     parser.add_argument(
         "--no-cv", action="store_true", help="Skip cross-validation."
     )
+    parser.add_argument(
+        "--threshold",
+        type=float,
+        default=default_threshold,
+        help=f"Decision threshold for predictions (0.0-1.0). Default: {default_threshold} (from config). "
+             f"Override with env var: MODEL_INFERENCE_THRESHOLD",
+    )
 
     args = parser.parse_args()
+    
+    # Check if threshold override from environment
+    env_threshold = os.getenv("MODEL_INFERENCE_THRESHOLD")
+    if env_threshold:
+        args.threshold = float(env_threshold)
+        print(f"[INFO] Threshold overridden by MODEL_INFERENCE_THRESHOLD={args.threshold}")
+    else:
+        print(f"[INFO] Using threshold from config: {args.threshold}")
 
     train(
         dataset_path=args.dataset,
@@ -676,6 +778,8 @@ def main() -> None:
         cv_method=args.cv_method,
         mlflow_experiment=args.mlflow_experiment,
         mlflow_run_name=args.mlflow_run_name,
+        threshold=args.threshold,
+        config=config,
     )
 
     print("\n" + "=" * 60)

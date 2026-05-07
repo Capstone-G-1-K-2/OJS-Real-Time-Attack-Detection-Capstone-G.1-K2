@@ -13,6 +13,11 @@ from src.preprocessing.pattern_rules import (
     XSS_PATTERNS,
     PATH_TRAVERSAL_PATTERNS,
     COMMAND_INJECTION_PATTERNS,
+    HOST_HEADER_XSS_PATTERNS,
+    CSRF_PATTERNS,
+    PRIVESC_PATTERNS,
+    EXECUTABLE_EXTENSIONS,
+    FILE_UPLOAD_BYPASS_PATTERNS,
 )
 
 
@@ -118,6 +123,16 @@ def parse_modsecurity_jsonl(file_path: str | Path) -> pd.DataFrame:
                 "has_suspicious_path": _contains_pattern(uri, SUSPICIOUS_PATH_PATTERNS),
                 "has_path_traversal": _contains_pattern(uri, PATH_TRAVERSAL_PATTERNS),
                 "has_command_injection": _contains_pattern(uri, COMMAND_INJECTION_PATTERNS),
+                # CVE-specific features
+                "has_cve_2022_24181": _contains_pattern(
+                    str(payload.get("transaction", {}).get("request", {}).get("headers", {}).get("Host", "")),
+                    HOST_HEADER_XSS_PATTERNS
+                ),
+                "missing_csrf_token": 0 if _contains_pattern(full_text, CSRF_PATTERNS) else 1,
+                "has_suspicious_referer": 1 if payload.get("transaction", {}).get("request", {}).get("headers", {}).get("Referer", "-") == "-" else 0,
+                "has_privesc_attempt": _contains_pattern(full_text, PRIVESC_PATTERNS),
+                "has_cve_2024_xss_privesc": 1 if (_contains_pattern(full_text, XSS_PATTERNS) and _contains_pattern(full_text, PRIVESC_PATTERNS)) else 0,
+                "has_cve_2021_32626": 1 if (_contains_pattern(uri, EXECUTABLE_EXTENSIONS) or _contains_pattern(uri, FILE_UPLOAD_BYPASS_PATTERNS)) else 0,
             }
 
             # If explicit label exists in raw log, keep it for supervised training.

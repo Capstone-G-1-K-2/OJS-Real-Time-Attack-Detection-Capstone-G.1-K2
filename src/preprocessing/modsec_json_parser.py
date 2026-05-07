@@ -20,6 +20,11 @@ from src.preprocessing.pattern_rules import (
     XSS_PATTERNS,
     PATH_TRAVERSAL_PATTERNS,
     COMMAND_INJECTION_PATTERNS,
+    HOST_HEADER_XSS_PATTERNS,
+    CSRF_PATTERNS,
+    PRIVESC_PATTERNS,
+    EXECUTABLE_EXTENSIONS,
+    FILE_UPLOAD_BYPASS_PATTERNS,
 )
 
 
@@ -103,6 +108,12 @@ def _extract_from_json_transaction(tx: dict[str, Any]) -> dict[str, Any]:
         "has_suspicious_path": 0,
         "has_path_traversal": 0,
         "has_command_injection": 0,
+        "has_cve_2022_24181": 0,
+        "missing_csrf_token": 0,
+        "has_suspicious_referer": 0,
+        "has_cve_2024_xss_privesc": 0,
+        "has_privesc_attempt": 0,
+        "has_cve_2021_32626": 0,
         "label": 0,
     }
     
@@ -185,6 +196,28 @@ def _extract_from_json_transaction(tx: dict[str, Any]) -> dict[str, Any]:
         row["has_suspicious_path"] = _contains_pattern(row["uri"], SUSPICIOUS_PATH_PATTERNS)
         row["has_path_traversal"] = _contains_pattern(row["uri"], PATH_TRAVERSAL_PATTERNS)
         row["has_command_injection"] = _contains_pattern(row["uri"], COMMAND_INJECTION_PATTERNS)
+        
+        # ============ CVE-SPECIFIC FEATURES ============
+        
+        # CVE-2022-24181: XSS via Host Header
+        host_header = request.get("headers", {}).get("Host", "")
+        row["has_cve_2022_24181"] = _contains_pattern(host_header, HOST_HEADER_XSS_PATTERNS)
+        
+        # CVE-2023-6671: CSRF (detect missing/suspicious CSRF tokens)
+        row["missing_csrf_token"] = 0 if _contains_pattern(full_text, CSRF_PATTERNS) else 1
+        referer = request.get("headers", {}).get("Referer", "-")
+        row["has_suspicious_referer"] = 1 if referer == "-" or referer == "" else 0
+        
+        # CVE-2024-25434/36/38: XSS + Privilege Escalation
+        has_xss = _contains_pattern(full_text, XSS_PATTERNS)
+        has_privesc = _contains_pattern(full_text, PRIVESC_PATTERNS)
+        row["has_cve_2024_xss_privesc"] = 1 if (has_xss and has_privesc) else 0
+        row["has_privesc_attempt"] = has_privesc
+        
+        # CVE-2021-32626: RCE via arbitrary file upload
+        has_exec = _contains_pattern(row["uri"], EXECUTABLE_EXTENSIONS)
+        has_bypass = _contains_pattern(row["uri"], FILE_UPLOAD_BYPASS_PATTERNS)
+        row["has_cve_2021_32626"] = 1 if (has_exec or has_bypass) else 0
         
     except Exception as e:
         print(f"[WARN] Error extracting transaction: {e}")
