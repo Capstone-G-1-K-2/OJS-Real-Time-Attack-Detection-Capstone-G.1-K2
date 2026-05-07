@@ -28,25 +28,6 @@ from src.preprocessing.pattern_rules import (
 )
 
 
-def _extract_severity_from_message(message: str) -> str:
-    """Extract severity level dari message string."""
-    severity_map = {
-        "EMERGENCY": 5,
-        "ALERT": 5,
-        "CRITICAL": 4,
-        "ERROR": 3,
-        "WARNING": 2,
-        "NOTICE": 1,
-        "INFO": 0,
-        "DEBUG": 0,
-    }
-    
-    for severity_str, score in severity_map.items():
-        if severity_str.lower() in message.lower():
-            return severity_str
-    return "INFO"
-
-
 def _severity_to_score(severity: str) -> int:
     """Convert severity string to numeric score.
     

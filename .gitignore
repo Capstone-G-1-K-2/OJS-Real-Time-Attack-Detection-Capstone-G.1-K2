@@ -55,10 +55,10 @@ data/processed/*
 !data/processed/.gitkeep
 
 # Keep raw and dataset folders tracked, but ignore accidental dump files if needed
-# data/raw/*
-# !data/raw/.gitkeep
+data/raw/*
+!data/raw/.gitkeep
 # data/dataset/*
-# !data/dataset/.gitkeep
+!data/dataset/.gitkeep
 
 # Reports
 reports/
