@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 
 from telegram import (
     Update,
+    ReplyKeyboardMarkup,
 )
 
 from telegram.ext import (
@@ -21,6 +22,10 @@ from src.auth.repository import (
     is_allowed_email,
     save_verified_user,
     is_authorized,
+    get_user_probability,
+    update_user_probability,
+    get_subscription_status,
+    update_subscription_status,
 )
 
 from src.auth.otp_service import (
@@ -39,13 +44,11 @@ from src.db.attack_repository import (
 
 load_dotenv()
 
-logging.basicConfig(
-    level=logging.INFO
-)
+logging.basicConfig(level=logging.INFO)
 
 logger = logging.getLogger(__name__)
 
-ASK_EMAIL, VERIFY_OTP = range(2)
+ASK_EMAIL, VERIFY_OTP, SET_PROBABILITY = range(3)
 
 
 class TelegramBotListener:
@@ -69,44 +72,86 @@ class TelegramBotListener:
 
         self._register_handlers()
 
-    def _register_handlers(
-        self,
-    ):
+    def _register_handlers(self):
 
-        conversation_handler = (
-            ConversationHandler(
-                entry_points=[
-                    CommandHandler(
-                        "start",
-                        self.start,
+        conversation_handler = ConversationHandler(
+
+            entry_points=[
+
+                CommandHandler(
+                    "start",
+                    self.start,
+                ),
+
+                MessageHandler(
+                    filters.Regex(
+                        "^📊 Probability$"
+                    ),
+                    self.probability_menu,
+                ),
+
+                MessageHandler(
+                    filters.Regex(
+                        "^📡 Status$"
+                    ),
+                    self.status,
+                ),
+
+                MessageHandler(
+                    filters.Regex(
+                        (
+                            "^🔕 Disable Notification$|"
+                            "^🔔 Enable Notification$"
+                        )
+                    ),
+                    self.toggle_notification,
+                ),
+            ],
+
+            states={
+
+                ASK_EMAIL: [
+                    MessageHandler(
+                        filters.TEXT
+                        & ~filters.COMMAND,
+                        self.handle_email,
                     )
                 ],
 
-                states={
+                VERIFY_OTP: [
+                    MessageHandler(
+                        filters.TEXT
+                        & ~filters.COMMAND,
+                        self.handle_otp,
+                    )
+                ],
 
-                    ASK_EMAIL: [
-                        MessageHandler(
-                            filters.TEXT
-                            & ~filters.COMMAND,
-                            self.handle_email,
-                        )
-                    ],
+                SET_PROBABILITY: [
+                    MessageHandler(
+                        filters.TEXT
+                        & ~filters.COMMAND,
+                        self.handle_probability,
+                    )
+                ],
+            },
 
-                    VERIFY_OTP: [
-                        MessageHandler(
-                            filters.TEXT
-                            & ~filters.COMMAND,
-                            self.handle_otp,
-                        )
-                    ],
-                },
-
-                fallbacks=[],
-            )
+            fallbacks=[
+                CommandHandler(
+                    "menu",
+                    self.menu,
+                )
+            ],
         )
 
         self.app.add_handler(
             conversation_handler
+        )
+
+        self.app.add_handler(
+            CommandHandler(
+                "menu",
+                self.menu,
+            )
         )
 
         self.app.add_handler(
@@ -118,8 +163,66 @@ class TelegramBotListener:
 
         self.app.add_handler(
             CallbackQueryHandler(
-                self.handle_attack_feedback
+                self.handle_attack_feedback,
+                pattern="^attack_",
             )
+        )
+
+    def build_main_menu(
+        self,
+        chat_id,
+    ):
+
+        subscribed = (
+            get_subscription_status(
+                chat_id
+            )
+        )
+
+        notification_button = (
+            "🔕 Disable Notification"
+            if subscribed
+            else "🔔 Enable Notification"
+        )
+
+        keyboard = [
+            [
+                "📊 Probability",
+                "📡 Status",
+            ],
+            [
+                notification_button,
+            ],
+        ]
+
+        return ReplyKeyboardMarkup(
+            keyboard,
+            resize_keyboard=True,
+        )
+
+    async def menu(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE,
+    ):
+
+        chat_id = (
+            update.effective_chat.id
+        )
+
+        if not is_authorized(chat_id):
+
+            await update.message.reply_text(
+                "Unauthorized."
+            )
+
+            return
+
+        await update.message.reply_text(
+            "Main menu",
+            reply_markup=self.build_main_menu(
+                chat_id
+            ),
         )
 
     async def start(
@@ -132,20 +235,13 @@ class TelegramBotListener:
             update.effective_chat.id
         )
 
-        logger.info(
-            "/start received chat_id=%s",
-            chat_id,
-        )
-
-        if is_authorized(
-            chat_id
-        ):
+        if is_authorized(chat_id):
 
             await update.message.reply_text(
-                (
-                    "You are already "
-                    "authenticated."
-                )
+                "You are already authenticated.",
+                reply_markup=self.build_main_menu(
+                    chat_id
+                ),
             )
 
             return ConversationHandler.END
@@ -167,22 +263,7 @@ class TelegramBotListener:
             .lower()
         )
 
-        logger.info(
-            "Email entered: %s",
-            email,
-        )
-
-        if not is_allowed_email(
-            email
-        ):
-
-            logger.warning(
-                (
-                    "Unauthorized email "
-                    "attempt: %s"
-                ),
-                email,
-            )
+        if not is_allowed_email(email):
 
             await update.message.reply_text(
                 "Email not authorized."
@@ -191,11 +272,6 @@ class TelegramBotListener:
             return ConversationHandler.END
 
         otp = generate_otp()
-
-        logger.info(
-            "Generated OTP for %s",
-            email,
-        )
 
         try:
 
@@ -211,9 +287,7 @@ class TelegramBotListener:
             )
 
             await update.message.reply_text(
-                (
-                    "Failed sending OTP email."
-                )
+                "Failed sending OTP email."
             )
 
             return ConversationHandler.END
@@ -226,11 +300,6 @@ class TelegramBotListener:
         context.user_data[
             "email"
         ] = email
-
-        logger.info(
-            "OTP stored for %s",
-            email,
-        )
 
         await update.message.reply_text(
             (
@@ -257,33 +326,16 @@ class TelegramBotListener:
 
         if not email:
 
-            logger.warning(
-                "OTP flow missing email"
-            )
-
             await update.message.reply_text(
                 "Session expired."
             )
 
             return ConversationHandler.END
 
-        logger.info(
-            "OTP entered for %s",
-            email,
-        )
-
         if not verify_otp(
             email,
             otp_input,
         ):
-
-            logger.warning(
-                (
-                    "Invalid OTP "
-                    "attempt for %s"
-                ),
-                email,
-            )
 
             await update.message.reply_text(
                 "Invalid OTP."
@@ -296,22 +348,152 @@ class TelegramBotListener:
             update.effective_chat.id,
         )
 
-        logger.info(
+        await update.message.reply_text(
             (
-                "User authenticated "
-                "email=%s "
-                "chat_id=%s"
+                "Authentication successful.\n"
+                "You will now receive alerts."
             ),
-            email,
-            update.effective_chat.id,
+            reply_markup=self.build_main_menu(
+                update.effective_chat.id
+            ),
+        )
+
+        return ConversationHandler.END
+
+    async def probability_menu(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE,
+    ):
+
+        chat_id = (
+            update.effective_chat.id
+        )
+
+        if not is_authorized(chat_id):
+
+            await update.message.reply_text(
+                "Unauthorized."
+            )
+
+            return ConversationHandler.END
+
+        current_probability = (
+            get_user_probability(
+                chat_id
+            )
         )
 
         await update.message.reply_text(
             (
-                "Authentication successful.\n"
-                "You will now receive "
-                "attack alerts."
+                f"Current minimum probability: "
+                f"{current_probability * 100:.0f}%\n\n"
+                "Enter new minimum probability (0-100):"
             )
+        )
+
+        return SET_PROBABILITY
+
+    async def handle_probability(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE,
+    ):
+
+        chat_id = (
+            update.effective_chat.id
+        )
+
+        value = (
+            update.message.text.strip()
+        )
+
+        try:
+            probability = float(value)
+
+        except ValueError:
+
+            await update.message.reply_text(
+                "Invalid number."
+            )
+
+            return SET_PROBABILITY
+
+        if probability < 0 or probability > 100:
+
+            await update.message.reply_text(
+                "Probability must be between 0-100."
+            )
+
+            return SET_PROBABILITY
+
+        normalized_probability = (
+            probability / 100
+        )
+
+        update_user_probability(
+            chat_id,
+            normalized_probability,
+        )
+
+        await update.message.reply_text(
+            (
+                f"Minimum probability updated "
+                f"to {probability:.0f}%"
+            ),
+            reply_markup=self.build_main_menu(
+                chat_id
+            ),
+        )
+
+        return ConversationHandler.END
+
+    async def toggle_notification(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE,
+    ):
+
+        chat_id = (
+            update.effective_chat.id
+        )
+
+        if not is_authorized(chat_id):
+
+            await update.message.reply_text(
+                "Unauthorized."
+            )
+
+            return ConversationHandler.END
+
+        current_status = (
+            get_subscription_status(
+                chat_id
+            )
+        )
+
+        new_status = (
+            not current_status
+        )
+
+        update_subscription_status(
+            chat_id,
+            new_status,
+        )
+
+        status_text = (
+            "enabled"
+            if new_status
+            else "disabled"
+        )
+
+        await update.message.reply_text(
+            (
+                f"Notifications {status_text}."
+            ),
+            reply_markup=self.build_main_menu(
+                chat_id
+            ),
         )
 
         return ConversationHandler.END
@@ -326,23 +508,7 @@ class TelegramBotListener:
             update.effective_chat.id
         )
 
-        logger.info(
-            "/status requested chat_id=%s",
-            chat_id,
-        )
-
-        if not is_authorized(
-            chat_id
-        ):
-
-            logger.warning(
-                (
-                    "Unauthorized "
-                    "status access "
-                    "chat_id=%s"
-                ),
-                chat_id,
-            )
+        if not is_authorized(chat_id):
 
             await update.message.reply_text(
                 "Unauthorized."
@@ -350,8 +516,29 @@ class TelegramBotListener:
 
             return
 
+        current_probability = (
+            get_user_probability(
+                chat_id
+            )
+        )
+
+        subscribed = (
+            get_subscription_status(
+                chat_id
+            )
+        )
+
         await update.message.reply_text(
-            "Bot is operational."
+            (
+                "Bot operational.\n\n"
+                f"Notification: "
+                f"{'enabled' if subscribed else 'disabled'}\n"
+                f"Minimum probability: "
+                f"{current_probability * 100:.0f}%"
+            ),
+            reply_markup=self.build_main_menu(
+                chat_id
+            ),
         )
 
     async def handle_attack_feedback(
@@ -364,42 +551,19 @@ class TelegramBotListener:
 
         await query.answer()
 
-        data = query.data
-
-        logger.info(
-            "Feedback callback=%s",
-            data,
-        )
-
         try:
 
             action, event_id = (
-                data.split(":")
+                query.data.split(":")
             )
 
-            event_id = int(
-                event_id
+            event_id = int(event_id)
+
+            assessment = (
+                "yes"
+                if action == "attack_yes"
+                else "no"
             )
-
-            if action == "attack_yes":
-
-                assessment = "yes"
-
-            elif action == "attack_no":
-
-                assessment = "no"
-
-            else:
-
-                logger.warning(
-                    (
-                        "Unknown feedback "
-                        "action=%s"
-                    ),
-                    action,
-                )
-
-                return
 
             update_attack_assessment(
                 event_id,
@@ -411,29 +575,13 @@ class TelegramBotListener:
             )
 
             await query.message.reply_text(
-                (
-                    "Feedback saved: "
-                    f"{assessment}"
-                )
-            )
-
-            logger.info(
-                (
-                    "Assessment updated "
-                    "event_id=%s "
-                    "assessment=%s"
-                ),
-                event_id,
-                assessment,
+                f"Feedback saved: {assessment}"
             )
 
         except Exception:
 
             logger.exception(
-                (
-                    "Failed processing "
-                    "attack feedback"
-                )
+                "Failed processing feedback"
             )
 
             await query.message.reply_text(

@@ -394,6 +394,7 @@ def main():
                             notifier.send_alert(
                                 telegram_message,
                                 event_id,
+                                probability,
                             )
                         )
 

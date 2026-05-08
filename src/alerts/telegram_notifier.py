@@ -46,21 +46,17 @@ class TelegramNotifier:
         self,
         message: str,
         event_id: int,
+        probability: float,
     ) -> bool:
 
         users = (
             get_all_verified_users()
         )
 
-        logger.info(
-            "Sending alert to %s users",
-            len(users),
-        )
-
         if not users:
 
             logger.warning(
-                "No verified Telegram users found"
+                "No verified users"
             )
 
             return False
@@ -69,17 +65,44 @@ class TelegramNotifier:
 
         for user in users:
 
-            chat_id = user[
-                "telegram_chat_id"
-            ]
+            if not user.get(
+                "is_subscribed",
+                True,
+            ):
+                continue
+
+            user_threshold = user.get(
+                "min_probability",
+                0.5,
+            )
+
+            if probability < user_threshold:
+                continue
 
             tasks.append(
                 self._send_to_user(
-                    chat_id=chat_id,
+                    chat_id=user[
+                        "telegram_chat_id"
+                    ],
                     message=message,
                     event_id=event_id,
                 )
             )
+
+        targeted_users = len(tasks)
+
+        logger.info(
+            "Targeted users=%s",
+            targeted_users,
+        )
+
+        if targeted_users == 0:
+
+            logger.info(
+                "No users matched criteria"
+            )
+
+            return False
 
         results = await asyncio.gather(
             *tasks,
@@ -93,9 +116,12 @@ class TelegramNotifier:
         )
 
         logger.info(
-            "Telegram alerts success=%s/%s",
+            (
+                "Telegram alerts "
+                "success=%s/%s"
+            ),
             success_count,
-            len(users),
+            targeted_users,
         )
 
         return success_count > 0
@@ -168,9 +194,7 @@ class TelegramNotifier:
                     e,
                 )
 
-                await asyncio.sleep(
-                    delay
-                )
+                await asyncio.sleep(delay)
 
                 delay *= 2
 
