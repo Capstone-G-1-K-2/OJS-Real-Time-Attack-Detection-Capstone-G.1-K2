@@ -1,142 +1,261 @@
 #!/usr/bin/env python3
-"""
-main.py - OJS WAF Real-Time Inference
-Membaca audit.log ModSecurity, ekstrak field, dan prediksi via model pipeline
-"""
 
+import os
 import json
 import time
-import os
 import pickle
-import pandas as pd
+import asyncio
+
 from datetime import datetime
 
+from src.alerts.telegram_notifier import (
+    TelegramNotifier,
+)
+
+from src.alerts.alert_formatter import (
+    build_attack_alert,
+)
+
 LOG_PATH = "/var/log/modsecurity/audit.log"
+
 MODEL_PATH = "/app/model.pkl"
 
-LABEL_MAP = {
-    0: "Normal",
-    1: "Malicious"
-}
+ALERT_COOLDOWN_SECONDS = 10
 
-# ── Load model ──────────────────────────────────────────────────────────────
+
 def load_model(path):
     print(f"[*] Loading model from {path}...")
+
     with open(path, "rb") as f:
         model = pickle.load(f)
+
     print(f"[*] Model loaded: {type(model)}")
+
     return model
 
-# ── Extract fields dari audit log entry ─────────────────────────────────────
-def extract_input(entry: dict) -> dict:
-    t = entry.get("transaction", entry)  # support both formats
 
-    # Request fields
+def extract_input(entry: dict) -> dict:
+    t = entry.get("transaction", entry)
+
     request = t.get("request", {})
     headers = request.get("headers", {})
-    method  = request.get("method", "GET")
-    uri     = request.get("uri", "/")
-
-    # Response fields
-    response    = t.get("response", {})
-    http_code   = response.get("http_code", 0)
-    body        = response.get("body", "")
-
-    # Messages (rules triggered)
-    messages = t.get("messages", [])
-
-    # Metadata
-    time_stamp = t.get("time_stamp", datetime.utcnow().isoformat() + "Z")
-    client_ip  = t.get("client_ip", "0.0.0.0")
+    client_ip = (
+        headers.get("X-Real-IP")
+        or headers.get("x-real-ip")
+        or headers.get("X-Forwarded-For", "").split(",")[0].strip()
+        or t.get("client_ip")
+        or "0.0.0.0"
+    )
+    response = t.get("response", {})
 
     return {
-        "time_stamp": time_stamp,
-        "client_ip":  client_ip,
+        "time_stamp": t.get(
+            "time_stamp",
+            datetime.utcnow().isoformat() + "Z",
+        ),
+
+        "client_ip": client_ip,
+
         "request": {
-            "method": method,
-            "uri":    uri,
+            "method": request.get(
+                "method",
+                "GET",
+            ),
+
+            "uri": request.get(
+                "uri",
+                "/",
+            ),
+
             "headers": {
-                "User-Agent": headers.get("User-Agent", headers.get("user-agent", "")),
-                "Host":       headers.get("Host", headers.get("host", "")),
-                "Referer":    headers.get("Referer", headers.get("referer", "")),
-            }
+                "User-Agent": headers.get(
+                    "User-Agent",
+                    headers.get("user-agent", ""),
+                ),
+
+                "Host": headers.get(
+                    "Host",
+                    headers.get("host", ""),
+                ),
+
+                "Referer": headers.get(
+                    "Referer",
+                    headers.get("referer", ""),
+                ),
+            },
         },
+
         "response": {
-            "http_code": http_code,
-            "body":      body,
+            "http_code": response.get(
+                "http_code",
+                0,
+            ),
+
+            "body": response.get(
+                "body",
+                "",
+            ),
         },
-        "messages": messages,
+
+        "messages": t.get(
+            "messages",
+            [],
+        ),
     }
 
-# ── Tail file ───────────────────────────────────────────────────────────────
+
 def tail_f(filepath):
-    with open(filepath, "r", encoding="utf-8", errors="replace") as f:
-        f.seek(0, 2)  # seek ke end of file
+    with open(
+        filepath,
+        "r",
+        encoding="utf-8",
+        errors="replace",
+    ) as f:
+
+        f.seek(0, 2)
+
         while True:
             line = f.readline()
+
             if not line:
                 time.sleep(0.5)
                 continue
+
             yield line.strip()
 
-# ── Main ────────────────────────────────────────────────────────────────────
+
 def main():
     print("=" * 55)
     print("  OJS WAF Real-Time Inference")
     print("=" * 55)
+
     print(f"[*] Log path  : {LOG_PATH}")
     print(f"[*] Model path: {MODEL_PATH}")
     print()
 
-    # Tunggu log file ada
     while not os.path.exists(LOG_PATH):
-        print(f"[*] Waiting for log file: {LOG_PATH}")
+        print(
+            f"[*] Waiting for log file: {LOG_PATH}"
+        )
+
         time.sleep(2)
 
-    # Load model
-    try:
-        model = load_model(MODEL_PATH)
-    except Exception as e:
-        print(f"[ERROR] Failed to load model: {e}")
-        raise
+    model = load_model(MODEL_PATH)
 
-    print(f"[*] Watching audit log for new entries...\n")
+    notifier = TelegramNotifier()
+
+    print(
+        "[*] Telegram notifier initialized"
+    )
+
+    print(
+        "[*] Watching audit log for new entries...\n"
+    )
+
+    last_alert_time = 0
 
     for line in tail_f(LOG_PATH):
+
         if not line:
             continue
+
         try:
             raw_entry = json.loads(line)
+
         except json.JSONDecodeError:
             continue
 
         try:
             input_data = extract_input(raw_entry)
 
-            # Predict using predict_from_json
-            result = model.predict_from_json(input_data)
+            result = model.predict_from_json(
+                input_data
+            )
 
-            prediction  = result["prediction"]
+            prediction = result["prediction"]
+
             probability = result["probability"]
-            decision    = result["decision"]
-            threshold   = result["threshold"]
 
-            confidence = f"{probability*100:.1f}%" if probability is not None else "N/A"
+            decision = result["decision"]
 
-            # Info tambahan untuk context
-            method  = input_data["request"]["method"]
-            uri     = input_data["request"]["uri"]
-            status  = input_data["response"]["http_code"]
-            ip      = input_data["client_ip"]
-            ts      = input_data["time_stamp"]
+            threshold = result["threshold"]
 
-            # Print result
-            flag = "[ATTACK]" if decision == "ATTACK" else "NORMAL"
-            print(f"{flag} | {ts} | {ip} | {method} {uri} | HTTP {status} | prob={confidence}")
+            confidence = (
+                f"{probability * 100:.1f}%"
+                if probability is not None
+                else "N/A"
+            )
+
+            method = input_data[
+                "request"
+            ]["method"]
+
+            uri = input_data[
+                "request"
+            ]["uri"]
+
+            status = input_data[
+                "response"
+            ]["http_code"]
+
+            ip = input_data[
+                "client_ip"
+            ]
+
+            ts = input_data[
+                "time_stamp"
+            ]
+
+            flag = (
+                "[ATTACK]"
+                if decision == "ATTACK"
+                else "NORMAL"
+            )
+
+            if decision == "ATTACK":
+
+                now = time.time()
+
+                if (
+                    now - last_alert_time
+                    >= ALERT_COOLDOWN_SECONDS
+                ):
+
+                    telegram_message = (
+                        build_attack_alert(
+                            timestamp=ts,
+                            source_ip=ip,
+                            method=method,
+                            uri=uri,
+                            http_status=status,
+                            prediction=prediction,
+                            confidence=confidence,
+                            threshold=threshold,
+                        )
+                    )
+
+                    asyncio.run(
+                        notifier.send_alert_with_retry(
+                            telegram_message
+                        )
+                    )
+
+                    last_alert_time = now
+
+            print(
+                f"{flag} | "
+                f"{ts} | "
+                f"{ip} | "
+                f"{method} {uri} | "
+                f"HTTP {status} | "
+                f"prob={confidence}"
+            )
 
         except Exception as e:
-            print(f"[ERROR] Failed to process entry: {e}")
-            continue
+            print(
+                f"[ERROR] Failed to process entry: {e}"
+            )
+
 
 if __name__ == "__main__":
     main()

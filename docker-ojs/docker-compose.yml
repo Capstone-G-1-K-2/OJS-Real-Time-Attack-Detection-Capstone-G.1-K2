@@ -97,10 +97,19 @@ services:
     restart: unless-stopped
 
   inference:
-    build: ./inference
+    build:
+      context: ..
+      dockerfile: docker-ojs/inference/Dockerfile
     container_name: ojs_inference
+    env_file:
+      - ../.env
+    environment:
+      DB_HOST: ojs_db_journal
+      DB_PORT: 3306
     volumes:
       - ./volumes/logs/modsecurity:/var/log/modsecurity:ro
+      - ../src:/app/src
+      - ./inference/main.py:/app/main.py
     networks:
       - inside
     depends_on:
