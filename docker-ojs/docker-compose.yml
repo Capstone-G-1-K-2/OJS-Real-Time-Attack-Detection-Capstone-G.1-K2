@@ -95,3 +95,14 @@ services:
       - inside
 
     restart: unless-stopped
+
+  inference:
+    build: ./inference
+    container_name: ojs_inference
+    volumes:
+      - ./volumes/logs/modsecurity:/var/log/modsecurity:ro
+    networks:
+      - inside
+    depends_on:
+      - waf
+    restart: unless-stopped
