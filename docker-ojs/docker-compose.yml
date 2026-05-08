@@ -114,4 +114,5 @@ services:
       - inside
     depends_on:
       - waf
+      - db
     restart: unless-stopped

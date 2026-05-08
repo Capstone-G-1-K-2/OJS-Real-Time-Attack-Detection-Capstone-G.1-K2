@@ -16,14 +16,6 @@ from src.alerts.alert_formatter import (
     build_attack_alert,
 )
 
-from src.db.attack_repository import (
-    insert_attack_event,
-)
-
-from src.security.attack_classifier import (
-    extract_attack_type,
-)
-
 LOG_PATH = "/var/log/modsecurity/audit.log"
 
 MODEL_PATH = "/app/model.pkl"
@@ -32,7 +24,6 @@ ALERT_COOLDOWN_SECONDS = 10
 
 
 def load_model(path):
-
     print(f"[*] Loading model from {path}...")
 
     with open(path, "rb") as f:
@@ -43,57 +34,19 @@ def load_model(path):
     return model
 
 
-def extract_client_ip(
-    headers: dict,
-    transaction: dict,
-) -> str:
+def extract_input(entry: dict) -> dict:
+    t = entry.get("transaction", entry)
 
-    forwarded_for = headers.get(
-        "X-Forwarded-For",
-        "",
-    )
-
-    forwarded_ip = (
-        forwarded_for.split(",")[0].strip()
-        if forwarded_for
-        else ""
-    )
-
-    return (
+    request = t.get("request", {})
+    headers = request.get("headers", {})
+    client_ip = (
         headers.get("X-Real-IP")
         or headers.get("x-real-ip")
-        or forwarded_ip
-        or transaction.get("client_ip")
+        or headers.get("X-Forwarded-For", "").split(",")[0].strip()
+        or t.get("client_ip")
         or "0.0.0.0"
     )
-
-
-def extract_input(entry: dict) -> dict:
-
-    t = entry.get(
-        "transaction",
-        entry,
-    )
-
-    request = t.get(
-        "request",
-        {},
-    )
-
-    response = t.get(
-        "response",
-        {},
-    )
-
-    headers = request.get(
-        "headers",
-        {},
-    )
-
-    client_ip = extract_client_ip(
-        headers,
-        t,
-    )
+    response = t.get("response", {})
 
     return {
         "time_stamp": t.get(
@@ -152,7 +105,6 @@ def extract_input(entry: dict) -> dict:
 
 
 def tail_f(filepath):
-
     with open(
         filepath,
         "r",
@@ -163,7 +115,6 @@ def tail_f(filepath):
         f.seek(0, 2)
 
         while True:
-
             line = f.readline()
 
             if not line:
@@ -173,63 +124,7 @@ def tail_f(filepath):
             yield line.strip()
 
 
-def process_prediction_result(
-    result: dict,
-):
-
-    prediction = result.get(
-        "prediction"
-    )
-
-    probability = result.get(
-        "probability"
-    )
-
-    decision = result.get(
-        "decision"
-    )
-
-    threshold = result.get(
-        "threshold"
-    )
-
-    confidence = (
-        f"{probability * 100:.1f}%"
-        if probability is not None
-        else "N/A"
-    )
-
-    return (
-        prediction,
-        probability,
-        decision,
-        threshold,
-        confidence,
-    )
-
-
-def print_detection_log(
-    flag,
-    ts,
-    ip,
-    method,
-    uri,
-    status,
-    confidence,
-):
-
-    print(
-        f"{flag} | "
-        f"{ts} | "
-        f"{ip} | "
-        f"{method} {uri} | "
-        f"HTTP {status} | "
-        f"prob={confidence}"
-    )
-
-
 def main():
-
     print("=" * 55)
     print("  OJS WAF Real-Time Inference")
     print("=" * 55)
@@ -239,16 +134,13 @@ def main():
     print()
 
     while not os.path.exists(LOG_PATH):
-
         print(
             f"[*] Waiting for log file: {LOG_PATH}"
         )
 
         time.sleep(2)
 
-    model = load_model(
-        MODEL_PATH
-    )
+    model = load_model(MODEL_PATH)
 
     notifier = TelegramNotifier()
 
@@ -268,34 +160,30 @@ def main():
             continue
 
         try:
-
-            raw_entry = json.loads(
-                line
-            )
+            raw_entry = json.loads(line)
 
         except json.JSONDecodeError:
             continue
 
         try:
+            input_data = extract_input(raw_entry)
 
-            input_data = extract_input(
-                raw_entry
+            result = model.predict_from_json(
+                input_data
             )
 
-            result = (
-                model.predict_from_json(
-                    input_data
-                )
-            )
+            prediction = result["prediction"]
 
-            (
-                prediction,
-                probability,
-                decision,
-                threshold,
-                confidence,
-            ) = process_prediction_result(
-                result
+            probability = result["probability"]
+
+            decision = result["decision"]
+
+            threshold = result["threshold"]
+
+            confidence = (
+                f"{probability * 100:.1f}%"
+                if probability is not None
+                else "N/A"
             )
 
             method = input_data[
@@ -317,19 +205,6 @@ def main():
             ts = input_data[
                 "time_stamp"
             ]
-            
-            parsed_ts = datetime.strptime(
-                ts,
-                "%a %b %d %H:%M:%S %Y"
-            )
-            
-            sql_timestamp = parsed_ts.strftime(
-                "%Y-%m-%d %H:%M:%S"
-            )
-
-            messages = input_data[
-                "messages"
-            ]
 
             flag = (
                 "[ATTACK]"
@@ -338,35 +213,6 @@ def main():
             )
 
             if decision == "ATTACK":
-
-                attack_type = (
-                    extract_attack_type(
-                        messages
-                    )
-                )
-
-                try:
-
-                    event_id = (
-                        insert_attack_event(
-                            detected_at=sql_timestamp,
-                            attack_type=attack_type,
-                            probability=probability,
-                            attack_url=uri,
-                            attacker_ip=ip,
-                        )
-                    )
-
-                    print(
-                        f"[*] Attack event stored | id={event_id}"
-                    )
-
-                except Exception as db_error:
-
-                    print(
-                        "[WARNING] Failed to store attack event:",
-                        db_error,
-                    )
 
                 now = time.time()
 
@@ -388,36 +234,24 @@ def main():
                         )
                     )
 
-                    try:
-
-                        asyncio.run(
-                            notifier.send_alert(
-                                telegram_message,
-                                event_id,
-                            )
+                    asyncio.run(
+                        notifier.send_alert_with_retry(
+                            telegram_message
                         )
-
-                    except Exception as notify_error:
-
-                        print(
-                            "[WARNING] Telegram notification failed:",
-                            notify_error,
-                        )
+                    )
 
                     last_alert_time = now
 
-            print_detection_log(
-                flag=flag,
-                ts=ts,
-                ip=ip,
-                method=method,
-                uri=uri,
-                status=status,
-                confidence=confidence,
+            print(
+                f"{flag} | "
+                f"{ts} | "
+                f"{ip} | "
+                f"{method} {uri} | "
+                f"HTTP {status} | "
+                f"prob={confidence}"
             )
 
         except Exception as e:
-
             print(
                 f"[ERROR] Failed to process entry: {e}"
             )

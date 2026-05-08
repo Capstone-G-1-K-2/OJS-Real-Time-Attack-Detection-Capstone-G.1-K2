@@ -3,7 +3,9 @@ import logging
 
 from dotenv import load_dotenv
 
-from telegram import Update
+from telegram import (
+    Update,
+)
 
 from telegram.ext import (
     Application,
@@ -11,6 +13,7 @@ from telegram.ext import (
     MessageHandler,
     ConversationHandler,
     ContextTypes,
+    CallbackQueryHandler,
     filters,
 )
 
@@ -30,9 +33,15 @@ from src.auth.email_service import (
     send_otp_email,
 )
 
+from src.db.attack_repository import (
+    update_attack_assessment,
+)
+
 load_dotenv()
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO
+)
 
 logger = logging.getLogger(__name__)
 
@@ -40,10 +49,17 @@ ASK_EMAIL, VERIFY_OTP = range(2)
 
 
 class TelegramBotListener:
+
     def __init__(self):
+
         self.token = os.getenv(
             "TELEGRAM_TOKEN"
         )
+
+        if not self.token:
+            raise ValueError(
+                "TELEGRAM_TOKEN missing"
+            )
 
         self.app = (
             Application.builder()
@@ -51,34 +67,46 @@ class TelegramBotListener:
             .build()
         )
 
-        conv_handler = ConversationHandler(
-            entry_points=[
-                CommandHandler(
-                    "start",
-                    self.start,
-                )
-            ],
-            states={
-                ASK_EMAIL: [
-                    MessageHandler(
-                        filters.TEXT
-                        & ~filters.COMMAND,
-                        self.handle_email,
+        self._register_handlers()
+
+    def _register_handlers(
+        self,
+    ):
+
+        conversation_handler = (
+            ConversationHandler(
+                entry_points=[
+                    CommandHandler(
+                        "start",
+                        self.start,
                     )
                 ],
-                VERIFY_OTP: [
-                    MessageHandler(
-                        filters.TEXT
-                        & ~filters.COMMAND,
-                        self.handle_otp,
-                    )
-                ],
-            },
-            fallbacks=[],
+
+                states={
+
+                    ASK_EMAIL: [
+                        MessageHandler(
+                            filters.TEXT
+                            & ~filters.COMMAND,
+                            self.handle_email,
+                        )
+                    ],
+
+                    VERIFY_OTP: [
+                        MessageHandler(
+                            filters.TEXT
+                            & ~filters.COMMAND,
+                            self.handle_otp,
+                        )
+                    ],
+                },
+
+                fallbacks=[],
+            )
         )
 
         self.app.add_handler(
-            conv_handler
+            conversation_handler
         )
 
         self.app.add_handler(
@@ -88,15 +116,39 @@ class TelegramBotListener:
             )
         )
 
+        self.app.add_handler(
+            CallbackQueryHandler(
+                self.handle_attack_feedback
+            )
+        )
+
     async def start(
         self,
         update: Update,
         context: ContextTypes.DEFAULT_TYPE,
     ):
-        logger.info(
-            "/start command received from chat_id=%s",
-            update.effective_chat.id,
+
+        chat_id = (
+            update.effective_chat.id
         )
+
+        logger.info(
+            "/start received chat_id=%s",
+            chat_id,
+        )
+
+        if is_authorized(
+            chat_id
+        ):
+
+            await update.message.reply_text(
+                (
+                    "You are already "
+                    "authenticated."
+                )
+            )
+
+            return ConversationHandler.END
 
         await update.message.reply_text(
             "Enter your authorized email:"
@@ -109,8 +161,10 @@ class TelegramBotListener:
         update: Update,
         context: ContextTypes.DEFAULT_TYPE,
     ):
+
         email = (
             update.message.text.strip()
+            .lower()
         )
 
         logger.info(
@@ -118,9 +172,15 @@ class TelegramBotListener:
             email,
         )
 
-        if not is_allowed_email(email):
+        if not is_allowed_email(
+            email
+        ):
+
             logger.warning(
-                "Unauthorized email attempt: %s",
+                (
+                    "Unauthorized email "
+                    "attempt: %s"
+                ),
                 email,
             )
 
@@ -138,37 +198,45 @@ class TelegramBotListener:
         )
 
         try:
+
             await send_otp_email(
                 email,
                 otp,
             )
 
         except Exception:
+
             logger.exception(
-                "Failed to send OTP email"
+                "Failed sending OTP email"
             )
 
             await update.message.reply_text(
-                "Failed to send OTP email."
+                (
+                    "Failed sending OTP email."
+                )
             )
 
             return ConversationHandler.END
 
-        # IMPORTANT:
-        # store only AFTER successful send
-        store_otp(email, otp)
+        store_otp(
+            email,
+            otp,
+        )
+
+        context.user_data[
+            "email"
+        ] = email
 
         logger.info(
-            "OTP stored successfully for %s",
+            "OTP stored for %s",
             email,
         )
 
-        context.user_data["email"] = (
-            email
-        )
-
         await update.message.reply_text(
-            "OTP sent to your email."
+            (
+                "OTP sent to your email.\n"
+                "Enter OTP:"
+            )
         )
 
         return VERIFY_OTP
@@ -178,69 +246,101 @@ class TelegramBotListener:
         update: Update,
         context: ContextTypes.DEFAULT_TYPE,
     ):
+
         otp_input = (
             update.message.text.strip()
         )
 
-        email = context.user_data[
+        email = context.user_data.get(
             "email"
-        ]
+        )
+
+        if not email:
+
+            logger.warning(
+                "OTP flow missing email"
+            )
+
+            await update.message.reply_text(
+                "Session expired."
+            )
+
+            return ConversationHandler.END
 
         logger.info(
             "OTP entered for %s",
             email,
         )
 
-        if verify_otp(
+        if not verify_otp(
             email,
             otp_input,
         ):
-            save_verified_user(
-                email,
-                update.effective_chat.id,
-            )
 
-            logger.info(
-                "User verified successfully: %s",
+            logger.warning(
+                (
+                    "Invalid OTP "
+                    "attempt for %s"
+                ),
                 email,
             )
 
             await update.message.reply_text(
-                "Authentication successful."
+                "Invalid OTP."
             )
 
-            return ConversationHandler.END
+            return VERIFY_OTP
 
-        logger.warning(
-            "Invalid OTP attempt for %s",
+        save_verified_user(
             email,
+            update.effective_chat.id,
+        )
+
+        logger.info(
+            (
+                "User authenticated "
+                "email=%s "
+                "chat_id=%s"
+            ),
+            email,
+            update.effective_chat.id,
         )
 
         await update.message.reply_text(
-            "Invalid OTP."
+            (
+                "Authentication successful.\n"
+                "You will now receive "
+                "attack alerts."
+            )
         )
 
-        return VERIFY_OTP
+        return ConversationHandler.END
 
     async def status(
         self,
         update: Update,
         context: ContextTypes.DEFAULT_TYPE,
     ):
+
         chat_id = (
             update.effective_chat.id
         )
 
         logger.info(
-            "/status requested by chat_id=%s",
+            "/status requested chat_id=%s",
             chat_id,
         )
 
         if not is_authorized(
             chat_id
         ):
+
             logger.warning(
-                "Unauthorized status access from %s",
+                (
+                    "Unauthorized "
+                    "status access "
+                    "chat_id=%s"
+                ),
                 chat_id,
             )
 
@@ -251,10 +351,97 @@ class TelegramBotListener:
             return
 
         await update.message.reply_text(
-            "Bot is working."
+            "Bot is operational."
         )
 
+    async def handle_attack_feedback(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE,
+    ):
+
+        query = update.callback_query
+
+        await query.answer()
+
+        data = query.data
+
+        logger.info(
+            "Feedback callback=%s",
+            data,
+        )
+
+        try:
+
+            action, event_id = (
+                data.split(":")
+            )
+
+            event_id = int(
+                event_id
+            )
+
+            if action == "attack_yes":
+
+                assessment = "yes"
+
+            elif action == "attack_no":
+
+                assessment = "no"
+
+            else:
+
+                logger.warning(
+                    (
+                        "Unknown feedback "
+                        "action=%s"
+                    ),
+                    action,
+                )
+
+                return
+
+            update_attack_assessment(
+                event_id,
+                assessment,
+            )
+
+            await query.edit_message_reply_markup(
+                reply_markup=None
+            )
+
+            await query.message.reply_text(
+                (
+                    "Feedback saved: "
+                    f"{assessment}"
+                )
+            )
+
+            logger.info(
+                (
+                    "Assessment updated "
+                    "event_id=%s "
+                    "assessment=%s"
+                ),
+                event_id,
+                assessment,
+            )
+
+        except Exception:
+
+            logger.exception(
+                (
+                    "Failed processing "
+                    "attack feedback"
+                )
+            )
+
+            await query.message.reply_text(
+                "Failed saving feedback."
+            )
+
     def run(self):
+
         logger.info(
             "Starting Telegram bot..."
         )
