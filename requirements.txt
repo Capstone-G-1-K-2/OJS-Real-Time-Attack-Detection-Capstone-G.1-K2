@@ -33,3 +33,4 @@ xgboost==3.2.0
 imbalanced-learn==0.14.1
 optuna==4.3.0
 pymysql
+dotenv
