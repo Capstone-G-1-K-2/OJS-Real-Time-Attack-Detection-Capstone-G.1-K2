@@ -7,7 +7,7 @@ SQLI_PATTERNS = [
     r"insert\s+into",
     r"delete\s+from",
     r"or\s+1\s*=\s*1",
-    r"or\s+'1'\s*=\s*'1'",
+    r"or\s+['\"]1['\"]\s*=\s*['\"]1['\"]?",
     r"and\s+1\s*=\s*1",
     r"sleep\s*\(",
     r"waitfor\s+delay",
