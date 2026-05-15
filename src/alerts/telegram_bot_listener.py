@@ -1,103 +1,597 @@
-import logging
 import os
-import subprocess
-from typing import Optional
+import logging
 
 from dotenv import load_dotenv
-from telegram import Update
+
+from telegram import (
+    Update,
+    ReplyKeyboardMarkup,
+)
+
 from telegram.ext import (
     Application,
     CommandHandler,
     MessageHandler,
+    ConversationHandler,
     ContextTypes,
+    CallbackQueryHandler,
     filters,
 )
 
-# Load .env
+from src.auth.repository import (
+    is_allowed_email,
+    save_verified_user,
+    is_authorized,
+    get_user_probability,
+    update_user_probability,
+    get_subscription_status,
+    update_subscription_status,
+)
+
+from src.auth.otp_service import (
+    generate_otp,
+    store_otp,
+    verify_otp,
+)
+
+from src.auth.email_service import (
+    send_otp_email,
+)
+
+from src.db.attack_repository import (
+    update_attack_assessment,
+)
+
 load_dotenv()
 
-# Configure logging (stdout)
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
-)
+logging.basicConfig(level=logging.INFO)
 
 logger = logging.getLogger(__name__)
 
+ASK_EMAIL, VERIFY_OTP, SET_PROBABILITY = range(3)
+
 
 class TelegramBotListener:
-    """Telegram bot listener for incoming commands."""
 
-    def __init__(self) -> None:
-        self.token: str = os.getenv("TELEGRAM_TOKEN", "")
-        self.allowed_chat_id: Optional[str] = os.getenv("TELEGRAM_CHAT_ID")
+    def __init__(self):
+
+        self.token = os.getenv(
+            "TELEGRAM_TOKEN"
+        )
 
         if not self.token:
-            raise ValueError("TELEGRAM_TOKEN is required")
+            raise ValueError(
+                "TELEGRAM_TOKEN missing"
+            )
 
-        self.app = Application.builder().token(self.token).build()
+        self.app = (
+            Application.builder()
+            .token(self.token)
+            .build()
+        )
+
         self._register_handlers()
 
-    def _register_handlers(self) -> None:
-        """Register all command and message handlers."""
-        self.app.add_handler(CommandHandler("status", self._handle_status))
+    def _register_handlers(self):
+
+        conversation_handler = ConversationHandler(
+
+            entry_points=[
+
+                CommandHandler(
+                    "start",
+                    self.start,
+                ),
+
+                MessageHandler(
+                    filters.Regex(
+                        "^📊 Probability$"
+                    ),
+                    self.probability_menu,
+                ),
+
+                MessageHandler(
+                    filters.Regex(
+                        "^📡 Status$"
+                    ),
+                    self.status,
+                ),
+
+                MessageHandler(
+                    filters.Regex(
+                        (
+                            "^🔕 Disable Notification$|"
+                            "^🔔 Enable Notification$"
+                        )
+                    ),
+                    self.toggle_notification,
+                ),
+            ],
+
+            states={
+
+                ASK_EMAIL: [
+                    MessageHandler(
+                        filters.TEXT
+                        & ~filters.COMMAND,
+                        self.handle_email,
+                    )
+                ],
+
+                VERIFY_OTP: [
+                    MessageHandler(
+                        filters.TEXT
+                        & ~filters.COMMAND,
+                        self.handle_otp,
+                    )
+                ],
+
+                SET_PROBABILITY: [
+                    MessageHandler(
+                        filters.TEXT
+                        & ~filters.COMMAND,
+                        self.handle_probability,
+                    )
+                ],
+            },
+
+            fallbacks=[
+                CommandHandler(
+                    "menu",
+                    self.menu,
+                )
+            ],
+        )
+
         self.app.add_handler(
-            MessageHandler(filters.TEXT & ~filters.COMMAND, self._handle_message)
+            conversation_handler
         )
 
-    async def _handle_status(
-        self, update: Update, context: ContextTypes.DEFAULT_TYPE
-    ) -> None:
-        """Handle /status command."""
-        chat_id = str(update.effective_chat.id)
-        username = update.effective_user.username or "unknown"
-        text = update.message.text or ""
-
-        logger.info(
-            "[COMMAND] /status | chat_id=%s user=%s text=%s",
-            chat_id,
-            username,
-            text,
+        self.app.add_handler(
+            CommandHandler(
+                "menu",
+                self.menu,
+            )
         )
 
-        if not self._is_authorized(chat_id):
-            logger.warning("[UNAUTHORIZED] chat_id=%s", chat_id)
-            await update.message.reply_text("Unauthorized")
+        self.app.add_handler(
+            CommandHandler(
+                "status",
+                self.status,
+            )
+        )
+
+        self.app.add_handler(
+            CallbackQueryHandler(
+                self.handle_attack_feedback,
+                pattern="^attack_",
+            )
+        )
+
+    def build_main_menu(
+        self,
+        chat_id,
+    ):
+
+        subscribed = (
+            get_subscription_status(
+                chat_id
+            )
+        )
+
+        notification_button = (
+            "🔕 Disable Notification"
+            if subscribed
+            else "🔔 Enable Notification"
+        )
+
+        keyboard = [
+            [
+                "📊 Probability",
+                "📡 Status",
+            ],
+            [
+                notification_button,
+            ],
+        ]
+
+        return ReplyKeyboardMarkup(
+            keyboard,
+            resize_keyboard=True,
+        )
+
+    async def menu(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE,
+    ):
+
+        chat_id = (
+            update.effective_chat.id
+        )
+
+        if not is_authorized(chat_id):
+
+            await update.message.reply_text(
+                "Unauthorized."
+            )
+
             return
 
-        result = self._run_command("date")
-
-        await update.message.reply_text(f"🖥 VPS Time:\n{result}")
-
-    async def _handle_message(
-        self, update: Update, context: ContextTypes.DEFAULT_TYPE
-    ) -> None:
-        """Log all non-command messages."""
-        chat_id = str(update.effective_chat.id)
-        username = update.effective_user.username or "unknown"
-        text = update.message.text or ""
-
-        logger.info(
-            "[MESSAGE] chat_id=%s user=%s text=%s",
-            chat_id,
-            username,
-            text,
+        await update.message.reply_text(
+            "Main menu",
+            reply_markup=self.build_main_menu(
+                chat_id
+            ),
         )
 
-    def _is_authorized(self, chat_id: str) -> bool:
-        """Check if chat_id is allowed."""
-        return bool(self.allowed_chat_id and chat_id == self.allowed_chat_id)
+    async def start(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE,
+    ):
 
-    @staticmethod
-    def _run_command(cmd: str) -> str:
-        """Execute shell command safely."""
+        chat_id = (
+            update.effective_chat.id
+        )
+
+        if is_authorized(chat_id):
+
+            await update.message.reply_text(
+                "You are already authenticated.",
+                reply_markup=self.build_main_menu(
+                    chat_id
+                ),
+            )
+
+            return ConversationHandler.END
+
+        await update.message.reply_text(
+            "Enter your authorized email:"
+        )
+
+        return ASK_EMAIL
+
+    async def handle_email(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE,
+    ):
+
+        email = (
+            update.message.text.strip()
+            .lower()
+        )
+
+        if not is_allowed_email(email):
+
+            await update.message.reply_text(
+                "Email not authorized."
+            )
+
+            return ConversationHandler.END
+
+        otp = generate_otp()
+
         try:
-            return subprocess.getoutput(cmd)
-        except Exception as e:
-            logger.error("Command failed: %s", e)
-            return "Error executing command"
 
-    def run(self) -> None:
-        """Start bot polling."""
-        logger.info("Starting Telegram bot listener...")
+            await send_otp_email(
+                email,
+                otp,
+            )
+
+        except Exception:
+
+            logger.exception(
+                "Failed sending OTP email"
+            )
+
+            await update.message.reply_text(
+                "Failed sending OTP email."
+            )
+
+            return ConversationHandler.END
+
+        store_otp(
+            email,
+            otp,
+        )
+
+        context.user_data[
+            "email"
+        ] = email
+
+        await update.message.reply_text(
+            (
+                "OTP sent to your email.\n"
+                "Enter OTP:"
+            )
+        )
+
+        return VERIFY_OTP
+
+    async def handle_otp(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE,
+    ):
+
+        otp_input = (
+            update.message.text.strip()
+        )
+
+        email = context.user_data.get(
+            "email"
+        )
+
+        if not email:
+
+            await update.message.reply_text(
+                "Session expired."
+            )
+
+            return ConversationHandler.END
+
+        if not verify_otp(
+            email,
+            otp_input,
+        ):
+
+            await update.message.reply_text(
+                "Invalid OTP."
+            )
+
+            return VERIFY_OTP
+
+        save_verified_user(
+            email,
+            update.effective_chat.id,
+        )
+
+        await update.message.reply_text(
+            (
+                "Authentication successful.\n"
+                "You will now receive alerts."
+            ),
+            reply_markup=self.build_main_menu(
+                update.effective_chat.id
+            ),
+        )
+
+        return ConversationHandler.END
+
+    async def probability_menu(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE,
+    ):
+
+        chat_id = (
+            update.effective_chat.id
+        )
+
+        if not is_authorized(chat_id):
+
+            await update.message.reply_text(
+                "Unauthorized."
+            )
+
+            return ConversationHandler.END
+
+        current_probability = (
+            get_user_probability(
+                chat_id
+            )
+        )
+
+        await update.message.reply_text(
+            (
+                f"Current minimum probability: "
+                f"{current_probability * 100:.0f}%\n\n"
+                "Enter new minimum probability (0-100):"
+            )
+        )
+
+        return SET_PROBABILITY
+
+    async def handle_probability(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE,
+    ):
+
+        chat_id = (
+            update.effective_chat.id
+        )
+
+        value = (
+            update.message.text.strip()
+        )
+
+        try:
+            probability = float(value)
+
+        except ValueError:
+
+            await update.message.reply_text(
+                "Invalid number."
+            )
+
+            return SET_PROBABILITY
+
+        if probability < 0 or probability > 100:
+
+            await update.message.reply_text(
+                "Probability must be between 0-100."
+            )
+
+            return SET_PROBABILITY
+
+        normalized_probability = (
+            probability / 100
+        )
+
+        update_user_probability(
+            chat_id,
+            normalized_probability,
+        )
+
+        await update.message.reply_text(
+            (
+                f"Minimum probability updated "
+                f"to {probability:.0f}%"
+            ),
+            reply_markup=self.build_main_menu(
+                chat_id
+            ),
+        )
+
+        return ConversationHandler.END
+
+    async def toggle_notification(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE,
+    ):
+
+        chat_id = (
+            update.effective_chat.id
+        )
+
+        if not is_authorized(chat_id):
+
+            await update.message.reply_text(
+                "Unauthorized."
+            )
+
+            return ConversationHandler.END
+
+        current_status = (
+            get_subscription_status(
+                chat_id
+            )
+        )
+
+        new_status = (
+            not current_status
+        )
+
+        update_subscription_status(
+            chat_id,
+            new_status,
+        )
+
+        status_text = (
+            "enabled"
+            if new_status
+            else "disabled"
+        )
+
+        await update.message.reply_text(
+            (
+                f"Notifications {status_text}."
+            ),
+            reply_markup=self.build_main_menu(
+                chat_id
+            ),
+        )
+
+        return ConversationHandler.END
+
+    async def status(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE,
+    ):
+
+        chat_id = (
+            update.effective_chat.id
+        )
+
+        if not is_authorized(chat_id):
+
+            await update.message.reply_text(
+                "Unauthorized."
+            )
+
+            return
+
+        current_probability = (
+            get_user_probability(
+                chat_id
+            )
+        )
+
+        subscribed = (
+            get_subscription_status(
+                chat_id
+            )
+        )
+
+        await update.message.reply_text(
+            (
+                "Bot operational.\n\n"
+                f"Notification: "
+                f"{'enabled' if subscribed else 'disabled'}\n"
+                f"Minimum probability: "
+                f"{current_probability * 100:.0f}%"
+            ),
+            reply_markup=self.build_main_menu(
+                chat_id
+            ),
+        )
+
+    async def handle_attack_feedback(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE,
+    ):
+
+        query = update.callback_query
+
+        await query.answer()
+
+        try:
+
+            action, event_id = (
+                query.data.split(":")
+            )
+
+            event_id = int(event_id)
+
+            assessment = (
+                "yes"
+                if action == "attack_yes"
+                else "no"
+            )
+
+            update_attack_assessment(
+                event_id,
+                assessment,
+            )
+
+            await query.edit_message_reply_markup(
+                reply_markup=None
+            )
+
+            await query.message.reply_text(
+                f"Feedback saved: {assessment}"
+            )
+
+        except Exception:
+
+            logger.exception(
+                "Failed processing feedback"
+            )
+
+            await query.message.reply_text(
+                "Failed saving feedback."
+            )
+
+    def run(self):
+
+        logger.info(
+            "Starting Telegram bot..."
+        )
+
         self.app.run_polling()

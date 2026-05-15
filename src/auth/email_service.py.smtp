@@ -1,0 +1,135 @@
+import os
+import ssl
+import smtplib
+import asyncio
+import logging
+
+from email.mime.text import MIMEText
+
+from dotenv import load_dotenv
+
+load_dotenv()
+
+logger = logging.getLogger(__name__)
+
+
+async def send_otp_email(
+    receiver_email: str,
+    otp: str,
+):
+    await asyncio.to_thread(
+        _send_email_sync,
+        receiver_email,
+        otp,
+    )
+
+
+def _send_email_sync(
+    receiver_email: str,
+    otp: str,
+):
+    smtp_host = os.getenv("SMTP_HOST")
+    smtp_port = int(
+        os.getenv("SMTP_PORT", 587)
+    )
+
+    smtp_username = os.getenv(
+        "SMTP_USERNAME"
+    )
+
+    smtp_password = os.getenv(
+        "SMTP_PASSWORD"
+    )
+
+    smtp_from = os.getenv(
+        "SMTP_FROM"
+    )
+
+    logger.info(
+        "SMTP CONFIG | host=%s port=%s username=%s from=%s",
+        smtp_host,
+        smtp_port,
+        smtp_username,
+        smtp_from,
+    )
+
+    if not all([
+        smtp_host,
+        smtp_username,
+        smtp_password,
+        smtp_from,
+    ]):
+        raise ValueError(
+            "SMTP environment variables incomplete"
+        )
+
+    msg = MIMEText(
+        f"""
+Your OTP code is: {otp}
+
+This code expires in 5 minutes.
+"""
+    )
+
+    msg["Subject"] = "OJS Detection OTP"
+    msg["From"] = smtp_from
+    msg["To"] = receiver_email
+
+    logger.info(
+        "Connecting to SMTP server..."
+    )
+
+    context = ssl.create_default_context()
+
+    try:
+        server = smtplib.SMTP(
+            smtp_host,
+            smtp_port,
+            timeout=15,
+        )
+
+        logger.info(
+            "SMTP connected successfully"
+        )
+
+        server.set_debuglevel(1)
+
+        logger.info(
+            "Starting TLS..."
+        )
+
+        server.starttls(
+            context=context
+        )
+
+        logger.info(
+            "Logging into SMTP..."
+        )
+
+        server.login(
+            smtp_username,
+            smtp_password,
+        )
+
+        logger.info(
+            "Sending email..."
+        )
+
+        server.sendmail(
+            smtp_from,
+            receiver_email,
+            msg.as_string(),
+        )
+
+        logger.info(
+            "Email sent successfully"
+        )
+
+        server.quit()
+
+    except Exception as e:
+        logger.exception(
+            "SMTP FAILURE"
+        )
+
+        raise e

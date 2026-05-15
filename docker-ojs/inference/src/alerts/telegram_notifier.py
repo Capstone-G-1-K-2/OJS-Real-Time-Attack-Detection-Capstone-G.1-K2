@@ -1,0 +1,123 @@
+import logging
+import os
+import asyncio
+
+from telegram import Bot
+from dotenv import load_dotenv
+from pathlib import Path
+
+from src.auth.repository import (
+    get_all_verified_users,
+)
+
+load_dotenv()
+
+logger = logging.getLogger(__name__)
+FAILED_LOG_PATH = Path("logs/failed_notifications.log")
+
+
+class TelegramNotifier:
+    def __init__(self):
+        self.token = os.getenv(
+            "TELEGRAM_TOKEN"
+        )
+
+        self.bot = Bot(
+            token=self.token
+        )
+
+    async def send_alert(
+        self,
+        message: str,
+    ):
+        users = (
+            get_all_verified_users()
+        )
+
+        logger.info(
+            "Sending alert to %s users",
+            len(users),
+        )
+
+        tasks = []
+
+        for user in users:
+            chat_id = user[
+                "telegram_chat_id"
+            ]
+
+            tasks.append(
+                self._send_to_user(
+                    chat_id,
+                    message,
+                )
+            )
+
+        await asyncio.gather(*tasks)
+
+    async def send_alert_with_retry(
+        self,
+        message: str,
+        retries: int = 3,
+    ) -> bool:
+        """
+        Send Telegram alert with retry.
+        """
+
+        delay = 1
+
+        for attempt in range(1, retries + 1):
+
+            try:
+                success = await self.send_alert(
+                    title="OJS Attack Detection",
+                    message=message,
+                    severity="high",
+                    attack_count=1,
+                )
+
+                if success:
+                    return True
+
+            except Exception as e:
+                logger.error(
+                    f"Telegram retry {attempt} failed: {e}"
+                )
+
+            await asyncio.sleep(delay)
+
+            delay *= 2
+
+        logger.error(
+            "Telegram notification permanently failed"
+        )
+        
+        with FAILED_LOG_PATH.open("a") as f:
+            f.write(
+                f"{message}\n"
+            )
+
+        return False
+        
+    async def _send_to_user(
+        self,
+        chat_id: int,
+        message: str,
+    ):
+        try:
+            await self.bot.send_message(
+                chat_id=chat_id,
+                text=message,
+                parse_mode="Markdown",
+            )
+
+            logger.info(
+                "Alert sent to chat_id=%s",
+                chat_id,
+            )
+
+        except Exception:
+            logger.exception(
+                "Failed sending alert to %s",
+                chat_id,
+            )

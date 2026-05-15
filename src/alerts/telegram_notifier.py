@@ -1,146 +1,241 @@
-"""Telegram notification system for attack alerts."""
-
-from __future__ import annotations
-
-import logging
 import os
-from datetime import datetime
-from typing import Optional
+import asyncio
+import logging
+
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+from telegram import (
+    Bot,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+)
+
+from src.auth.repository import (
+    get_all_verified_users,
+)
+
+load_dotenv()
 
 logger = logging.getLogger(__name__)
 
+FAILED_LOG_PATH = Path(
+    "logs/failed_notifications.log"
+)
+
 
 class TelegramNotifier:
-    """Send attack alerts via Telegram Bot."""
-    
+
     def __init__(self):
-        """Initialize with token and chat ID from environment."""
-        self.token = os.getenv("TELEGRAM_TOKEN", "")
-        self.chat_id = os.getenv("TELEGRAM_CHAT_ID", "")
-        self.enabled = bool(self.token and self.chat_id)
-        
-        if self.enabled:
-            try:
-                from telegram import Bot
-                self.bot = Bot(token=self.token)
-                logger.info("✓ Telegram Bot initialized")
-            except Exception as e:
-                logger.error(f"Failed to init Telegram Bot: {e}")
-                self.enabled = False
-    
-    def is_configured(self) -> bool:
-        """Check if Telegram is properly configured."""
-        return self.enabled
-    
+
+        self.token = os.getenv(
+            "TELEGRAM_TOKEN"
+        )
+
+        if not self.token:
+            raise ValueError(
+                "TELEGRAM_TOKEN missing"
+            )
+
+        self.bot = Bot(
+            token=self.token
+        )
+
     async def send_alert(
         self,
-        title: str,
         message: str,
-        severity: str = "medium",
-        attack_count: int = 0,
+        event_id: int,
+        probability: float,
     ) -> bool:
-        """
-        Send alert to Telegram.
-        
-        Args:
-            title: Alert title
-            message: Alert message
-            severity: "low", "medium", "high", "critical"
-            attack_count: Number of attacks detected
-        
-        Returns:
-            True if sent successfully, False otherwise
-        """
-        if not self.enabled:
-            logger.warning("Telegram not configured, skipping alert")
-            return False
-        
-        try:
-            # Format severity emoji
-            emoji_map = {
-                "low": "🟢",
-                "medium": "🟡",
-                "high": "🔴",
-                "critical": "🔴🔴",
-            }
-            emoji = emoji_map.get(severity, "⚠️")
-            
-            # Build message
-            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            text = (
-                f"{emoji} *{title}*\n"
-                f"━━━━━━━━━━━━━━━━━━━━\n"
-                f"*Severity*: {severity.upper()}\n"
-                f"*Attacks Detected*: {attack_count}\n"
-                f"*Time*: {timestamp}\n"
-                f"━━━━━━━━━━━━━━━━━━━━\n"
-                f"{message}\n"
+
+        users = (
+            get_all_verified_users()
+        )
+
+        if not users:
+
+            logger.warning(
+                "No verified users"
             )
-            
-            # Send message
-            await self.bot.send_message(
-                chat_id=self.chat_id,
-                text=text,
-                parse_mode="Markdown",
-            )
-            
-            logger.info(f"✓ Alert sent: {title}")
-            return True
-        
-        except Exception as e:
-            logger.error(f"Failed to send alert: {e}")
+
             return False
-    
-    async def send_summary(
-        self,
-        period: str,
-        total_logs: int,
-        attack_count: int,
-        top_attacks: Optional[list[str]] = None,
-    ) -> bool:
-        """
-        Send periodic summary report.
-        
-        Args:
-            period: "hourly", "daily", etc.
-            total_logs: Total logs processed
-            attack_count: Total attacks detected
-            top_attacks: List of top attack patterns
-        
-        Returns:
-            True if sent successfully
-        """
-        if not self.enabled:
-            return False
-        
-        try:
-            attack_rate = (attack_count / total_logs * 100) if total_logs > 0 else 0
-            
-            text = (
-                f"📊 *{period.upper()} SUMMARY*\n"
-                f"━━━━━━━━━━━━━━━━━━━━\n"
-                f"*Logs Processed*: {total_logs}\n"
-                f"*Attacks Detected*: {attack_count}\n"
-                f"*Attack Rate*: {attack_rate:.2f}%\n"
+
+        tasks = []
+
+        for user in users:
+
+            if not user.get(
+                "is_subscribed",
+                True,
+            ):
+                continue
+
+            user_threshold = user.get(
+                "min_probability",
+                0.5,
             )
-            
-            if top_attacks:
-                text += (
-                    f"\n*Top Attack Patterns*:\n"
-                    + "\n".join(f"• {attack}" for attack in top_attacks[:5])
+
+            if probability < user_threshold:
+                continue
+
+            tasks.append(
+                self._send_to_user(
+                    chat_id=user[
+                        "telegram_chat_id"
+                    ],
+                    message=message,
+                    event_id=event_id,
                 )
-            
-            text += "\n━━━━━━━━━━━━━━━━━━━━"
-            
-            await self.bot.send_message(
-                chat_id=self.chat_id,
-                text=text,
-                parse_mode="Markdown",
             )
-            
-            logger.info(f"✓ Summary sent: {period}")
-            return True
-        
-        except Exception as e:
-            logger.error(f"Failed to send summary: {e}")
+
+        targeted_users = len(tasks)
+
+        logger.info(
+            "Targeted users=%s",
+            targeted_users,
+        )
+
+        if targeted_users == 0:
+
+            logger.info(
+                "No users matched criteria"
+            )
+
             return False
+
+        results = await asyncio.gather(
+            *tasks,
+            return_exceptions=True,
+        )
+
+        success_count = sum(
+            1
+            for result in results
+            if result is True
+        )
+
+        logger.info(
+            (
+                "Telegram alerts "
+                "success=%s/%s"
+            ),
+            success_count,
+            targeted_users,
+        )
+
+        return success_count > 0
+
+    async def _send_to_user(
+        self,
+        chat_id: int,
+        message: str,
+        event_id: int,
+        retries: int = 3,
+    ) -> bool:
+
+        keyboard = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton(
+                    "👍 Serangan",
+                    callback_data=f"attack_yes:{event_id}",
+                ),
+
+                InlineKeyboardButton(
+                    "👎 Bukan Serangan",
+                    callback_data=f"attack_no:{event_id}",
+                ),
+            ]
+        ])
+
+        delay = 1
+
+        for attempt in range(
+            1,
+            retries + 1,
+        ):
+
+            try:
+
+                sent_message = (
+                    await self.bot.send_message(
+                        chat_id=chat_id,
+                        text=message,
+                        parse_mode="Markdown",
+                        reply_markup=keyboard,
+                    )
+                )
+
+                logger.info(
+                    (
+                        "Alert sent "
+                        "chat_id=%s "
+                        "message_id=%s "
+                        "event_id=%s"
+                    ),
+                    chat_id,
+                    sent_message.message_id,
+                    event_id,
+                )
+
+                return True
+
+            except Exception as e:
+
+                logger.error(
+                    (
+                        "Telegram send failed "
+                        "attempt=%s "
+                        "chat_id=%s "
+                        "error=%s"
+                    ),
+                    attempt,
+                    chat_id,
+                    e,
+                )
+
+                await asyncio.sleep(delay)
+
+                delay *= 2
+
+        self._log_failed_notification(
+            chat_id=chat_id,
+            event_id=event_id,
+            message=message,
+        )
+
+        return False
+
+    def _log_failed_notification(
+        self,
+        chat_id: int,
+        event_id: int,
+        message: str,
+    ):
+
+        FAILED_LOG_PATH.parent.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
+
+        with FAILED_LOG_PATH.open(
+            "a"
+        ) as f:
+
+            f.write(
+                (
+                    f"chat_id={chat_id} "
+                    f"event_id={event_id}\n"
+                    f"{message}\n\n"
+                )
+            )
+
+        logger.error(
+            (
+                "Notification permanently failed "
+                "chat_id=%s "
+                "event_id=%s"
+            ),
+            chat_id,
+            event_id,
+        )
