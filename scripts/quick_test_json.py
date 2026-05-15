@@ -3,6 +3,7 @@ Loads models/trained_models/modsec_xgb_with_preproc.pkl (ModelWrapper) and runs
 predictions for a set of JSON-like transactions.
 """
 
+import argparse
 import sys
 from pathlib import Path
 import json
@@ -14,6 +15,20 @@ if str(PROJECT_ROOT) not in sys.path:
 import pickle
 
 MODEL_PATH = Path("models/trained_models/modsec_xgb_with_preproc.pkl")
+
+
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Quick test wrapped ModSecurity model on sample JSON transactions.")
+    parser.add_argument(
+        "--threshold",
+        type=float,
+        default=0.45,
+        help="Decision threshold used for ATTACK vs NORMAL classification.",
+    )
+    return parser.parse_args()
+
+
+args = _parse_args()
 
 print("[INFO] Loading wrapped model...")
 with MODEL_PATH.open("rb") as f:
@@ -117,14 +132,17 @@ attack_count = 0
 normal_count = 0
 
 for name, tx, expected in TEST_TXS:
-    res = wrapper.predict_from_json(tx)
+    res = wrapper.predict_from_json(tx, threshold=args.threshold)
     prob = res.get("probability")
     pred = res.get("prediction")
     ok = pred == expected
     status = "[OK]" if ok else "[X]"
     label_str = "ATTACK" if expected == 1 else "NORMAL"
     print(f"{status}  {name}")
-    print(f"   URI: {tx['request'].get('uri')} | Method: {tx['request'].get('method')} | Pred: {pred} | Prob: {prob:.4f} | Expect: {label_str}\n")
+    print(
+        f"   URI: {tx['request'].get('uri')} | Method: {tx['request'].get('method')} | "
+        f"Pred: {pred} | Prob: {prob:.4f} | Threshold: {args.threshold:.2f} | Expect: {label_str}\n"
+    )
     if ok:
         passed += 1
     if expected == 1:
