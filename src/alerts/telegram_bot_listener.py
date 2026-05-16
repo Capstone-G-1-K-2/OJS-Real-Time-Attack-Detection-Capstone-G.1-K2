@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 from telegram import (
     Update,
     ReplyKeyboardMarkup,
+    ReplyKeyboardRemove,
 )
 
 from telegram.ext import (
@@ -22,6 +23,7 @@ from telegram.ext import (
 from src.auth.repository import (
     is_allowed_email,
     save_verified_user,
+    revoke_verified_user,
     is_authorized,
     get_user_probability,
     update_user_probability,
@@ -111,6 +113,13 @@ class TelegramBotListener:
                     ),
                     self.toggle_notification,
                 ),
+
+                MessageHandler(
+                    filters.Regex(
+                        "^🚪 Logout$"
+                    ),
+                    self.logout,
+                ),
             ],
 
             states={
@@ -197,6 +206,7 @@ class TelegramBotListener:
             ],
             [
                 notification_button,
+                "🚪 Logout",
             ],
         ]
 
@@ -523,6 +533,39 @@ class TelegramBotListener:
             reply_markup=self.build_main_menu(
                 chat_id
             ),
+        )
+
+        return ConversationHandler.END
+
+    async def logout(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE,
+    ):
+
+        chat_id = (
+            update.effective_chat.id
+        )
+
+        if not is_authorized(chat_id):
+
+            await update.message.reply_text(
+                "You are already logged out.",
+                reply_markup=ReplyKeyboardRemove(),
+            )
+
+            return ConversationHandler.END
+
+        revoke_verified_user(chat_id)
+
+        context.user_data.clear()
+
+        await update.message.reply_text(
+            (
+                "Logged out.\n\n"
+                "Use /start to authenticate again."
+            ),
+            reply_markup=ReplyKeyboardRemove(),
         )
 
         return ConversationHandler.END
