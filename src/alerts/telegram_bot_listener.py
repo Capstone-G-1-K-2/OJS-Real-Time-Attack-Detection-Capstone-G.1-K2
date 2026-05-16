@@ -1,5 +1,6 @@
 import os
 import logging
+import re
 
 from dotenv import load_dotenv
 
@@ -49,6 +50,10 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 ASK_EMAIL, VERIFY_OTP, SET_PROBABILITY = range(3)
+
+EMAIL_PATTERN = re.compile(
+    r"^[^@\s]+@[^@\s]+\.[^@\s]+$"
+)
 
 
 class TelegramBotListener:
@@ -216,7 +221,7 @@ class TelegramBotListener:
                 "Unauthorized."
             )
 
-            return
+            return ConversationHandler.END
 
         await update.message.reply_text(
             "Main menu",
@@ -224,6 +229,8 @@ class TelegramBotListener:
                 chat_id
             ),
         )
+
+        return ConversationHandler.END
 
     async def start(
         self,
@@ -263,13 +270,32 @@ class TelegramBotListener:
             .lower()
         )
 
+        context.user_data.pop(
+            "email",
+            None,
+        )
+
+        if not EMAIL_PATTERN.match(email):
+
+            await update.message.reply_text(
+                (
+                    "Invalid email format.\n\n"
+                    "Please enter a registered email:"
+                )
+            )
+
+            return ASK_EMAIL
+
         if not is_allowed_email(email):
 
             await update.message.reply_text(
-                "Email not authorized."
+                (
+                    "❌ Email not authorized.\n\n"
+                    "Please enter a registered email:"
+                )
             )
 
-            return ConversationHandler.END
+            return ASK_EMAIL
 
         otp = generate_otp()
 
@@ -327,10 +353,13 @@ class TelegramBotListener:
         if not email:
 
             await update.message.reply_text(
-                "Session expired."
+                (
+                    "Session expired.\n\n"
+                    "Please enter your authorized email:"
+                )
             )
 
-            return ConversationHandler.END
+            return ASK_EMAIL
 
         if not verify_otp(
             email,
@@ -514,7 +543,7 @@ class TelegramBotListener:
                 "Unauthorized."
             )
 
-            return
+            return ConversationHandler.END
 
         current_probability = (
             get_user_probability(
@@ -540,6 +569,8 @@ class TelegramBotListener:
                 chat_id
             ),
         )
+
+        return ConversationHandler.END
 
     async def handle_attack_feedback(
         self,
