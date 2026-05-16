@@ -33,7 +33,7 @@ app_key =
 installed = Off
 
 ; The canonical URL to the OJS installation (excluding the trailing slash)
-base_url = "https://pkp.sfu.ca/ojs"
+base_url = "http://207.2.122.94"
 
 ; Enable strict mode. This will more aggressively cause errors/warnings when
 ; deprecated behaviour exists in the codebase.
@@ -96,7 +96,7 @@ restful_urls = Off
 ; An empty string indicates that all hosts should be trusted (not recommended!)
 ; Example:
 ; allowed_hosts = '["myjournal.tld", "anotherjournal.tld", "mylibrary.tld"]'
-allowed_hosts = ''
+allowed_hosts = '["207.2.122.94"]'
 
 ; Allow the X_FORWARDED_FOR header to override the REMOTE_ADDR as the source IP
 ; Set this to "On" if you are behind a reverse proxy and you control the
@@ -139,7 +139,7 @@ sandbox = Off
 [database]
 
 driver = mysqli
-host = localhost
+host = db
 username = ojs
 password = ojs
 name = ojs
