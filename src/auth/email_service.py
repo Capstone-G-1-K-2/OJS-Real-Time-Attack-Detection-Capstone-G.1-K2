@@ -15,21 +15,21 @@ async def send_otp_email(
     otp: str,
 ):
     api_url = os.getenv(
-        "MXROUTE_API_URL"
+        "SMTP_API_URL"
     )
 
     payload = {
         "server": os.getenv(
-            "MXROUTE_SERVER"
+            "SMTP_SERVER"
         ),
         "username": os.getenv(
-            "MXROUTE_USERNAME"
+            "SMTP_USERNAME"
         ),
         "password": os.getenv(
-            "MXROUTE_PASSWORD"
+            "SMTP_PASSWORD"
         ),
         "from": os.getenv(
-            "MXROUTE_FROM"
+            "SMTP_FROM"
         ),
         "to": receiver_email,
         "subject": "OJS Detection OTP",
