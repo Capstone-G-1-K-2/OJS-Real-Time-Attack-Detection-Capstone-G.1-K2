@@ -3,6 +3,9 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+# Dockmate
+dockmate*.log
+
 # Virtual environments
 .venv/
 venv/

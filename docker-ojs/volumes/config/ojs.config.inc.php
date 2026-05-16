@@ -30,7 +30,7 @@ app_key =
 
 ; Set this to On once the system has been installed
 ; (This is generally done automatically by the installer)
-installed = Off
+installed = On
 
 ; The canonical URL to the OJS installation (excluding the trailing slash)
 base_url = "http://207.2.122.94"
@@ -138,10 +138,10 @@ sandbox = Off
 
 [database]
 
-driver = mysqli
+driver = mysql
 host = db
 username = ojs
-password = ojs
+password = riem9oomeiThooshahdohgheiquie5eiphu9Woh5wook5
 name = ojs
 
 ; Set the non-standard port and/or socket, if used
@@ -191,9 +191,10 @@ web_cache_hours = 1
 ;;;;;;;;;;;;;;;;;;;;;;;;;
 
 [i18n]
+client_charset = utf-8
 
 ; Default locale
-locale = en
+locale = en_US
 
 ; Database connection character set
 connection_charset = utf8
@@ -208,13 +209,13 @@ connection_charset = utf8
 ; Complete path to directory to store uploaded files
 ; (This directory should not be directly web-accessible)
 ; Windows users should use forward slashes
-files_dir = files
+files_dir = /var/www/files
 
 ; Path to the directory to store public uploaded files
 ; (This directory should be web-accessible and the specified path
 ; should be relative to the base OJS directory)
 ; Windows users should use forward slashes
-public_files_dir = public
+public_files_dir = /var/www/html/public
 
 ; The maximum allowed size in kilobytes of each user's public files
 ; directory. This is where user's can upload images through the
@@ -405,7 +406,7 @@ oai = On
 
 ; OAI Repository identifier. This setting forms part of OAI-PMH record IDs.
 ; Changing this setting may affect existing clients and is not recommended.
-repository_id = ojs.pkp.sfu.ca
+repository_id = "ojs2.207.2.122.94"
 
 ; Maximum number of records per request to serve via OAI
 oai_max_records = 100
