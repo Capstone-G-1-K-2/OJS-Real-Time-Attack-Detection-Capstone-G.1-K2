@@ -1,21 +1,4 @@
-import pymysql
-import os
-
-
-def get_connection():
-    return pymysql.connect(
-        host=os.getenv("DB_HOST"),
-        port=int(
-                os.getenv(
-                    "DB_PORT",
-                    "3306",
-                )
-            ),
-        user=os.getenv("DB_USER"),
-        password=os.getenv("DB_PASSWORD"),
-        database="ojs_detection",
-        cursorclass=pymysql.cursors.DictCursor,
-    )
+from src.auth.db import get_connection
 
 
 def insert_attack_event(

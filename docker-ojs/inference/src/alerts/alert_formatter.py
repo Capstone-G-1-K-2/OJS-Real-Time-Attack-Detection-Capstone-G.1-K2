@@ -15,6 +15,7 @@ def build_attack_alert(
     prediction: str,
     confidence: str,
     threshold: str,
+    attack_type: str = "unknown",
 ) -> str:
     """
     Build Telegram alert message.
@@ -36,6 +37,9 @@ def build_attack_alert(
 
 *HTTP Status*
 `{http_status}`
+
+*Attack Type*
+`{attack_type}`
 
 *Prediction*
 `{prediction}`

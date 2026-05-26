@@ -6,7 +6,7 @@ import time
 import pickle
 import asyncio
 
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 from src.alerts.telegram_notifier import (
     TelegramNotifier,
@@ -20,6 +20,15 @@ from src.db.attack_repository import (
     insert_attack_event,
 )
 
+from src.db.modsec_event_repository import (
+    insert_modsec_event,
+    link_attack_event,
+)
+
+from src.preprocessing.modsec_json_parser import (
+    _extract_from_json_transaction,
+)
+
 from src.security.attack_classifier import (
     extract_attack_type,
 )
@@ -29,6 +38,11 @@ LOG_PATH = "/var/log/modsecurity/audit.log"
 MODEL_PATH = "/app/model.pkl"
 
 ALERT_COOLDOWN_SECONDS = 10
+
+WIB_TIMEZONE = timezone(
+    timedelta(hours=7),
+    "WIB",
+)
 
 
 def load_model(path):
@@ -98,7 +112,9 @@ def extract_input(entry: dict) -> dict:
     return {
         "time_stamp": t.get(
             "time_stamp",
-            datetime.utcnow().isoformat() + "Z",
+            datetime.now(timezone.utc)
+            .isoformat()
+            .replace("+00:00", "Z"),
         ),
 
         "client_ip": client_ip,
@@ -208,6 +224,98 @@ def process_prediction_result(
     )
 
 
+def parse_mysql_timestamp(value):
+
+    if not value:
+        return None
+
+    for fmt in (
+        "%a %b %d %H:%M:%S %Y",
+        "%Y-%m-%d %H:%M:%S",
+        "%Y-%m-%dT%H:%M:%S",
+        "%Y-%m-%dT%H:%M:%SZ",
+    ):
+
+        try:
+
+            return datetime.strptime(
+                value,
+                fmt,
+            ).strftime(
+                "%Y-%m-%d %H:%M:%S"
+            )
+
+        except ValueError:
+            continue
+
+    return None
+
+
+def parse_timestamp_datetime(value):
+
+    if not value:
+        return None
+
+    if isinstance(value, datetime):
+        timestamp = value
+
+    else:
+        raw_timestamp = str(value).strip()
+
+        try:
+            timestamp = datetime.fromisoformat(
+                raw_timestamp.replace("Z", "+00:00")
+            )
+
+        except ValueError:
+            timestamp = None
+
+            for fmt in (
+                "%a %b %d %H:%M:%S %Y",
+                "%Y-%m-%d %H:%M:%S",
+                "%Y-%m-%dT%H:%M:%S",
+            ):
+
+                try:
+                    timestamp = datetime.strptime(
+                        raw_timestamp,
+                        fmt,
+                    )
+
+                    break
+
+                except ValueError:
+                    continue
+
+    if timestamp is None:
+        return None
+
+    if timestamp.tzinfo is None:
+        timestamp = timestamp.replace(
+            tzinfo=timezone.utc
+        )
+
+    return timestamp
+
+
+def format_wib_timestamp(value):
+
+    timestamp = parse_timestamp_datetime(
+        value
+    )
+
+    if timestamp is None:
+        return value
+
+    return (
+        timestamp.astimezone(
+            WIB_TIMEZONE
+        ).strftime(
+            "%Y-%m-%d %H:%M:%S WIB"
+        )
+    )
+
+
 def print_detection_log(
     flag,
     ts,
@@ -282,6 +390,12 @@ def main():
                 raw_entry
             )
 
+            parsed_row = (
+                _extract_from_json_transaction(
+                    input_data
+                )
+            )
+
             result = (
                 model.predict_from_json(
                     input_data
@@ -317,14 +431,11 @@ def main():
             ts = input_data[
                 "time_stamp"
             ]
-            
-            parsed_ts = datetime.strptime(
-                ts,
-                "%a %b %d %H:%M:%S %Y"
-            )
-            
-            sql_timestamp = parsed_ts.strftime(
-                "%Y-%m-%d %H:%M:%S"
+
+            sql_timestamp = (
+                parse_mysql_timestamp(
+                    ts
+                )
             )
 
             messages = input_data[
@@ -336,6 +447,26 @@ def main():
                 if decision == "ATTACK"
                 else "NORMAL"
             )
+
+            modsec_event_id = None
+            event_id = None
+
+            try:
+
+                modsec_event_id = (
+                    insert_modsec_event(
+                        parsed_row=parsed_row,
+                        model_prediction=prediction,
+                        model_probability=probability,
+                    )
+                )
+
+            except Exception as db_error:
+
+                print(
+                    "[WARNING] Failed to store modsec event:",
+                    db_error,
+                )
 
             if decision == "ATTACK":
 
@@ -368,6 +499,40 @@ def main():
                         db_error,
                     )
 
+                if event_id is None:
+
+                    print(
+                        "[WARNING] Skipping Telegram alert because attack event was not stored"
+                    )
+
+                    print_detection_log(
+                        flag=flag,
+                        ts=ts,
+                        ip=ip,
+                        method=method,
+                        uri=uri,
+                        status=status,
+                        confidence=confidence,
+                    )
+
+                    continue
+
+                if modsec_event_id is not None:
+
+                    try:
+
+                        link_attack_event(
+                            modsec_event_id,
+                            event_id,
+                        )
+
+                    except Exception as db_error:
+
+                        print(
+                            "[WARNING] Failed to link modsec event:",
+                            db_error,
+                        )
+
                 now = time.time()
 
                 if (
@@ -377,11 +542,14 @@ def main():
 
                     telegram_message = (
                         build_attack_alert(
-                            timestamp=ts,
+                            timestamp=format_wib_timestamp(
+                                ts
+                            ),
                             source_ip=ip,
                             method=method,
                             uri=uri,
                             http_status=status,
+                            attack_type=attack_type,
                             prediction=prediction,
                             confidence=confidence,
                             threshold=threshold,

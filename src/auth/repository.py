@@ -71,6 +71,26 @@ def is_authorized(chat_id: int) -> bool:
 
     return result is not None
 
+
+def revoke_verified_user(chat_id: int):
+    conn = get_connection()
+
+    try:
+
+        with conn.cursor() as cursor:
+            cursor.execute("""
+                UPDATE telegram_users
+                SET verified=FALSE
+                WHERE telegram_chat_id=%s
+            """, (chat_id,))
+
+        conn.commit()
+
+    finally:
+
+        conn.close()
+
+
 def update_user_probability(
     chat_id,
     probability,
@@ -202,4 +222,3 @@ def update_subscription_status(
     finally:
 
         conn.close()
-

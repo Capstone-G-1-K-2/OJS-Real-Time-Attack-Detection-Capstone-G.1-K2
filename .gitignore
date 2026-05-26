@@ -3,6 +3,9 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+# Dockmate
+dockmate*.log
+
 # Virtual environments
 .venv/
 venv/
@@ -287,3 +290,7 @@ docker-ojs/.env.local
 # Optional (logs, db)
 docker-ojs/volumes/db/
 docker-ojs/volumes/logs/
+docker-ojs/volumes/private/
+docker-ojs/volumes/public/
+docker-ojs/volumes/db-import/
+

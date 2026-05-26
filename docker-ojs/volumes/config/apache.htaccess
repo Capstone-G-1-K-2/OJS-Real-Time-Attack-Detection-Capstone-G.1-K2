@@ -1,0 +1,7 @@
+SetEnv HTTPS on
+PassEnv HTTPS
+
+RewriteEngine On
+
+RewriteCond %{HTTP:X-Forwarded-Proto} =https
+RewriteRule .* - [E=HTTPS:on]

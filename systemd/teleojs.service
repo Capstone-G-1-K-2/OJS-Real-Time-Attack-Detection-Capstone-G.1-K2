@@ -1,0 +1,21 @@
+[Unit]
+Description=OJS Telegram Bot Listener
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/OJS-Real-Time-Attack-Detection-Capstone-G.1-K2
+
+ExecStart=/root/OJS-Real-Time-Attack-Detection-Capstone-G.1-K2/.venv/bin/python -m scripts.run_telegram_bot
+
+Restart=always
+RestartSec=5
+
+Environment=PYTHONUNBUFFERED=1
+
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
