@@ -43,6 +43,14 @@ def _build_pipeline() -> Pipeline:
         "has_sqli_pattern",
         "has_xss_pattern",
         "has_suspicious_path",
+        "has_path_traversal",
+        "has_command_injection",
+        "has_cve_2022_24181",
+        "missing_csrf_token",
+        "has_suspicious_referer",
+        "has_cve_2024_xss_privesc",
+        "has_privesc_attempt",
+        "has_cve_2021_32626",
     ]
     categorical_features = ["method"]
     text_feature = "uri"
@@ -122,14 +130,15 @@ def train(
     df = df.rename(columns={k: v for k, v in column_mapping.items() if k in df.columns})
     
     # Add missing columns with defaults
-    if "rule_count" not in df.columns:
-        df["rule_count"] = 0
-    if "has_suspicious_path" not in df.columns:
-        df["has_suspicious_path"] = 0
-    if "has_sqli_pattern" not in df.columns:
-        df["has_sqli_pattern"] = 0
-    if "has_xss_pattern" not in df.columns:
-        df["has_xss_pattern"] = 0
+    default_columns = [
+        "rule_count", "has_suspicious_path", "has_sqli_pattern", "has_xss_pattern",
+        "has_path_traversal", "has_command_injection", "has_cve_2022_24181",
+        "missing_csrf_token", "has_suspicious_referer", "has_cve_2024_xss_privesc",
+        "has_privesc_attempt", "has_cve_2021_32626"
+    ]
+    for col in default_columns:
+        if col not in df.columns:
+            df[col] = 0
 
     required_columns = {
         "method",
@@ -144,6 +153,14 @@ def train(
         "has_sqli_pattern",
         "has_xss_pattern",
         "has_suspicious_path",
+        "has_path_traversal",
+        "has_command_injection",
+        "has_cve_2022_24181",
+        "missing_csrf_token",
+        "has_suspicious_referer",
+        "has_cve_2024_xss_privesc",
+        "has_privesc_attempt",
+        "has_cve_2021_32626",
         "label",
     }
 
