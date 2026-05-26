@@ -5,6 +5,7 @@ import logging
 from pathlib import Path
 
 from dotenv import load_dotenv
+from telegram.request import HTTPXRequest
 
 from telegram import (
     Bot,
@@ -20,27 +21,32 @@ load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-FAILED_LOG_PATH = Path(
-    "logs/failed_notifications.log"
-)
+FAILED_LOG_PATH = Path("logs/failed_notifications.log")
 
 
 class TelegramNotifier:
 
     def __init__(self):
 
-        self.token = os.getenv(
-            "TELEGRAM_TOKEN"
-        )
+        self.token = os.getenv("TELEGRAM_TOKEN")
 
         if not self.token:
-            raise ValueError(
-                "TELEGRAM_TOKEN missing"
-            )
+            raise ValueError("TELEGRAM_TOKEN missing")
+
+        request = HTTPXRequest(
+            connection_pool_size=20,
+            pool_timeout=30.0,
+            connect_timeout=10.0,
+            read_timeout=20.0,
+            write_timeout=20.0,
+        )
 
         self.bot = Bot(
-            token=self.token
+            token=self.token,
+            request=request,
         )
+
+        self.send_semaphore = asyncio.Semaphore(5)
 
     async def send_alert(
         self,
@@ -49,65 +55,44 @@ class TelegramNotifier:
         probability: float,
     ) -> bool:
 
-        users = (
-            get_all_verified_users()
-        )
+        users = get_all_verified_users()
 
         if not users:
-
-            logger.warning(
-                "No verified users"
-            )
-
+            logger.warning("No verified users")
             return False
 
-        tasks = []
+        targets = []
 
         for user in users:
 
-            if not user.get(
-                "is_subscribed",
-                True,
-            ):
+            if not user.get("is_subscribed", True):
                 continue
 
-            user_threshold = user.get(
-                "min_probability",
-                0.5,
-            )
+            user_threshold = user.get("min_probability", 0.5)
 
             if probability < user_threshold:
                 continue
 
-            tasks.append(
-                self._send_to_user(
-                    chat_id=user[
-                        "telegram_chat_id"
-                    ],
-                    message=message,
-                    event_id=event_id,
-                )
-            )
+            targets.append(user["telegram_chat_id"])
 
-        targeted_users = len(tasks)
+        targeted_users = len(targets)
 
-        logger.info(
-            "Targeted users=%s",
-            targeted_users,
-        )
+        logger.info("Targeted users=%s", targeted_users)
 
         if targeted_users == 0:
-
-            logger.info(
-                "No users matched criteria"
-            )
-
+            logger.info("No users matched criteria")
             return False
 
-        results = await asyncio.gather(
-            *tasks,
-            return_exceptions=True,
-        )
+        results = []
+
+        for chat_id in targets:
+            result = await self._send_to_user(
+                chat_id=chat_id,
+                message=message,
+                event_id=event_id,
+            )
+
+            results.append(result)
 
         success_count = sum(
             1
@@ -116,10 +101,7 @@ class TelegramNotifier:
         )
 
         logger.info(
-            (
-                "Telegram alerts "
-                "success=%s/%s"
-            ),
+            "Telegram alerts success=%s/%s",
             success_count,
             targeted_users,
         )
@@ -137,11 +119,6 @@ class TelegramNotifier:
         keyboard = InlineKeyboardMarkup([
             [
                 InlineKeyboardButton(
-                    "👍 Serangan",
-                    callback_data=f"attack_yes:{event_id}",
-                ),
-
-                InlineKeyboardButton(
                     "👎 Bukan Serangan",
                     callback_data=f"attack_no:{event_id}",
                 ),
@@ -150,53 +127,37 @@ class TelegramNotifier:
 
         delay = 1
 
-        for attempt in range(
-            1,
-            retries + 1,
-        ):
+        async with self.send_semaphore:
 
-            try:
+            for attempt in range(1, retries + 1):
 
-                sent_message = (
-                    await self.bot.send_message(
+                try:
+                    sent_message = await self.bot.send_message(
                         chat_id=chat_id,
                         text=message,
                         parse_mode="Markdown",
                         reply_markup=keyboard,
                     )
-                )
 
-                logger.info(
-                    (
-                        "Alert sent "
-                        "chat_id=%s "
-                        "message_id=%s "
-                        "event_id=%s"
-                    ),
-                    chat_id,
-                    sent_message.message_id,
-                    event_id,
-                )
+                    logger.info(
+                        "Alert sent chat_id=%s message_id=%s event_id=%s",
+                        chat_id,
+                        sent_message.message_id,
+                        event_id,
+                    )
 
-                return True
+                    return True
 
-            except Exception as e:
+                except Exception as e:
+                    logger.error(
+                        "Telegram send failed attempt=%s chat_id=%s error=%s",
+                        attempt,
+                        chat_id,
+                        e,
+                    )
 
-                logger.error(
-                    (
-                        "Telegram send failed "
-                        "attempt=%s "
-                        "chat_id=%s "
-                        "error=%s"
-                    ),
-                    attempt,
-                    chat_id,
-                    e,
-                )
-
-                await asyncio.sleep(delay)
-
-                delay *= 2
+                    await asyncio.sleep(delay)
+                    delay *= 2
 
         self._log_failed_notification(
             chat_id=chat_id,
@@ -218,10 +179,7 @@ class TelegramNotifier:
             exist_ok=True,
         )
 
-        with FAILED_LOG_PATH.open(
-            "a"
-        ) as f:
-
+        with FAILED_LOG_PATH.open("a") as f:
             f.write(
                 (
                     f"chat_id={chat_id} "
@@ -231,11 +189,7 @@ class TelegramNotifier:
             )
 
         logger.error(
-            (
-                "Notification permanently failed "
-                "chat_id=%s "
-                "event_id=%s"
-            ),
+            "Notification permanently failed chat_id=%s event_id=%s",
             chat_id,
             event_id,
         )

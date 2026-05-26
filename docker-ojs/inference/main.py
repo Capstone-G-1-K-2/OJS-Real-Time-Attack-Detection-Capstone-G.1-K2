@@ -20,6 +20,15 @@ from src.db.attack_repository import (
     insert_attack_event,
 )
 
+from src.db.modsec_event_repository import (
+    insert_modsec_event,
+    link_attack_event,
+)
+
+from src.preprocessing.modsec_json_parser import (
+    _extract_from_json_transaction,
+)
+
 from src.security.attack_classifier import (
     extract_attack_type,
 )
@@ -208,6 +217,33 @@ def process_prediction_result(
     )
 
 
+def parse_mysql_timestamp(value):
+
+    if not value:
+        return None
+
+    for fmt in (
+        "%a %b %d %H:%M:%S %Y",
+        "%Y-%m-%d %H:%M:%S",
+        "%Y-%m-%dT%H:%M:%S",
+        "%Y-%m-%dT%H:%M:%SZ",
+    ):
+
+        try:
+
+            return datetime.strptime(
+                value,
+                fmt,
+            ).strftime(
+                "%Y-%m-%d %H:%M:%S"
+            )
+
+        except ValueError:
+            continue
+
+    return None
+
+
 def print_detection_log(
     flag,
     ts,
@@ -282,6 +318,12 @@ def main():
                 raw_entry
             )
 
+            parsed_row = (
+                _extract_from_json_transaction(
+                    input_data
+                )
+            )
+
             result = (
                 model.predict_from_json(
                     input_data
@@ -317,14 +359,11 @@ def main():
             ts = input_data[
                 "time_stamp"
             ]
-            
-            parsed_ts = datetime.strptime(
-                ts,
-                "%a %b %d %H:%M:%S %Y"
-            )
-            
-            sql_timestamp = parsed_ts.strftime(
-                "%Y-%m-%d %H:%M:%S"
+
+            sql_timestamp = (
+                parse_mysql_timestamp(
+                    ts
+                )
             )
 
             messages = input_data[
@@ -336,6 +375,26 @@ def main():
                 if decision == "ATTACK"
                 else "NORMAL"
             )
+
+            modsec_event_id = None
+            event_id = None
+
+            try:
+
+                modsec_event_id = (
+                    insert_modsec_event(
+                        parsed_row=parsed_row,
+                        model_prediction=prediction,
+                        model_probability=probability,
+                    )
+                )
+
+            except Exception as db_error:
+
+                print(
+                    "[WARNING] Failed to store modsec event:",
+                    db_error,
+                )
 
             if decision == "ATTACK":
 
@@ -367,6 +426,40 @@ def main():
                         "[WARNING] Failed to store attack event:",
                         db_error,
                     )
+
+                if event_id is None:
+
+                    print(
+                        "[WARNING] Skipping Telegram alert because attack event was not stored"
+                    )
+
+                    print_detection_log(
+                        flag=flag,
+                        ts=ts,
+                        ip=ip,
+                        method=method,
+                        uri=uri,
+                        status=status,
+                        confidence=confidence,
+                    )
+
+                    continue
+
+                if modsec_event_id is not None:
+
+                    try:
+
+                        link_attack_event(
+                            modsec_event_id,
+                            event_id,
+                        )
+
+                    except Exception as db_error:
+
+                        print(
+                            "[WARNING] Failed to link modsec event:",
+                            db_error,
+                        )
 
                 now = time.time()
 

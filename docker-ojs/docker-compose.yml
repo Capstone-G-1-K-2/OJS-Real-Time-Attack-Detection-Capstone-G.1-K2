@@ -26,8 +26,8 @@ services:
 
   ojs:
     image: "pkpofficial/${OJS_IMAGE:-ojs}:${OJS_VERSION:-latest}"
-#    env_file:
-#      - .env
+    env_file:
+      - .env
     container_name: "ojs_app_${COMPOSE_PROJECT_NAME:-demo}"
     hostname: "${COMPOSE_PROJECT_NAME:-demo}"
     ports:
@@ -40,7 +40,7 @@ services:
       - ./volumes/logs/app:/var/log/apache2
 #      # WARNING: You can only enable file-volumes if file exists in the container.
       - ./volumes/config/ojs.config.inc.php:/var/www/html/config.inc.php
-#      - ./volumes/config/apache.htaccess:/var/www/html/.htaccess
+      - ./volumes/config/apache.htaccess:/var/www/html/.htaccess
 #      - ./volumes/php.custom.ini:/usr/local/etc/php/conf.d/custom.ini
 
     networks:
@@ -54,7 +54,7 @@ services:
     container_name: ojs_waf
 
     ports:
-      - "80:8080"
+      - "127.0.0.1:8080:8080"
 
     environment:
       PROXY: "1"
@@ -82,6 +82,9 @@ services:
       MODSEC_DEBUG_LOG: "/var/log/modsecurity/debug.log"
       MODSEC_DEBUG_LOGLEVEL: "3"
 
+      NGINX_X_FORWARDED_PROTO: "https"
+      NGINX_X_FORWARDED_PORT: "443"
+
     volumes:
       - ./volumes/logs/modsecurity:/var/log/modsecurity
       - ./volumes/config/waf/proxy_backend.conf.template:/etc/nginx/templates/includes/proxy_backend.conf.template
@@ -104,7 +107,7 @@ services:
     env_file:
       - ../.env
     environment:
-      DB_HOST: ojs_db_journal
+      DB_HOST: db
       DB_PORT: 3306
     volumes:
       - ./volumes/logs/modsecurity:/var/log/modsecurity:ro

@@ -33,7 +33,7 @@ app_key =
 installed = On
 
 ; The canonical URL to the OJS installation (excluding the trailing slash)
-base_url = "http://207.2.122.94"
+base_url = "https://capstone.benchy.pw"
 
 ; Enable strict mode. This will more aggressively cause errors/warnings when
 ; deprecated behaviour exists in the codebase.
@@ -41,6 +41,9 @@ strict = Off
 
 ; Session cookie name
 session_cookie_name = OJSSID
+
+cookie_secure = On
+cookie_samesite = Lax
 
 ; Session cookie path; if not specified, defaults to the detected base path
 ; session_cookie_path = /
@@ -96,13 +99,13 @@ restful_urls = Off
 ; An empty string indicates that all hosts should be trusted (not recommended!)
 ; Example:
 ; allowed_hosts = '["myjournal.tld", "anotherjournal.tld", "mylibrary.tld"]'
-allowed_hosts = '["207.2.122.94"]'
+allowed_hosts = '["capstone.benchy.pw", "207.2.122.94"]'
 
 ; Allow the X_FORWARDED_FOR header to override the REMOTE_ADDR as the source IP
 ; Set this to "On" if you are behind a reverse proxy and you control the
 ; X_FORWARDED_FOR header.
 ; Warning: This defaults to "On" if unset for backwards compatibility.
-trust_x_forwarded_for = Off
+trust_x_forwarded_for = On
 
 ; Display a message on the site admin and journal manager user home pages if there is an upgrade available
 show_upgrade_warning = On
@@ -261,7 +264,7 @@ force_login_ssl = Off
 ; Enabling this option provides some additional security, but may cause
 ; login problems for some users (e.g. if a user IP is changed frequently
 ; by a server or network configuration).
-session_check_ip = On
+session_check_ip = Off
 
 ; The encryption (hashing) algorithm to use for encrypting user passwords
 ; Valid values are: md5, sha1

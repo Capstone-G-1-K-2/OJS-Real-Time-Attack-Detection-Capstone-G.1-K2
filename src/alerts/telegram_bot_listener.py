@@ -45,6 +45,10 @@ from src.db.attack_repository import (
     update_attack_assessment,
 )
 
+from src.db.modsec_event_repository import (
+    mark_false_positive_by_attack_event_id,
+)
+
 load_dotenv()
 
 logging.basicConfig(level=logging.INFO)
@@ -644,12 +648,28 @@ class TelegramBotListener:
                 assessment,
             )
 
+            if action == "attack_no":
+
+                mark_false_positive_by_attack_event_id(
+                    event_id
+                )
+
+                feedback_message = (
+                    "Ditandai sebagai bukan serangan."
+                )
+
+            else:
+
+                feedback_message = (
+                    "Feedback saved: yes"
+                )
+
             await query.edit_message_reply_markup(
                 reply_markup=None
             )
 
             await query.message.reply_text(
-                f"Feedback saved: {assessment}"
+                feedback_message
             )
 
         except Exception:

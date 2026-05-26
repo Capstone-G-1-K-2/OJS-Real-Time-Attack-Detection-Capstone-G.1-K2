@@ -1,0 +1,19 @@
+<script>
+  const base64Image = "iVBORw0KGgoAAAANSUhEUgAABLQAAAQACAYAAAD4AADAAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMA"; 
+  // Catatan: Base64 di atas harus lengkap, jangan pakai ...
+
+  function base64ToBlob(base64Str, contentType = "image/png") {
+    const raw = window.atob(base64Str);
+    const rawLength = raw.length;
+    const uInt8Array = new Uint8Array(rawLength);
+
+    for (let i = 0; i < rawLength; ++i) {
+      uInt8Array[i] = raw.charCodeAt(i);
+    }
+
+    return new Blob([uInt8Array], { type: contentType });
+  }
+
+  const imageBlob = base64ToBlob(base64Image, "image/png");
+  console.log(imageBlob);
+</script>
