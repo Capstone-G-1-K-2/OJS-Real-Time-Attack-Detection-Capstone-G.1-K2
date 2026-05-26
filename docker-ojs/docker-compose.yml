@@ -49,6 +49,20 @@ services:
       - db
     restart: unless-stopped
 
+  adminer:
+    image: adminer:latest
+    container_name: ojs_adminer
+    environment:
+      ADMINER_DEFAULT_SERVER: db
+      ADMINER_PLUGINS: "dump-json dump-zip edit-calendar dark-switcher table-structure"
+    ports:
+      - "127.0.0.1:18080:8080"
+    networks:
+      - inside
+    depends_on:
+      - db
+    restart: unless-stopped
+    
   waf:
     image: owasp/modsecurity-crs:nginx
     container_name: ojs_waf
