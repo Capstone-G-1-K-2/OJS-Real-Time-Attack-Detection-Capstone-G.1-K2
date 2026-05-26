@@ -6,7 +6,7 @@ import time
 import pickle
 import asyncio
 
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 from src.alerts.telegram_notifier import (
     TelegramNotifier,
@@ -38,6 +38,11 @@ LOG_PATH = "/var/log/modsecurity/audit.log"
 MODEL_PATH = "/app/model.pkl"
 
 ALERT_COOLDOWN_SECONDS = 10
+
+WIB_TIMEZONE = timezone(
+    timedelta(hours=7),
+    "WIB",
+)
 
 
 def load_model(path):
@@ -107,7 +112,9 @@ def extract_input(entry: dict) -> dict:
     return {
         "time_stamp": t.get(
             "time_stamp",
-            datetime.utcnow().isoformat() + "Z",
+            datetime.now(timezone.utc)
+            .isoformat()
+            .replace("+00:00", "Z"),
         ),
 
         "client_ip": client_ip,
@@ -242,6 +249,71 @@ def parse_mysql_timestamp(value):
             continue
 
     return None
+
+
+def parse_timestamp_datetime(value):
+
+    if not value:
+        return None
+
+    if isinstance(value, datetime):
+        timestamp = value
+
+    else:
+        raw_timestamp = str(value).strip()
+
+        try:
+            timestamp = datetime.fromisoformat(
+                raw_timestamp.replace("Z", "+00:00")
+            )
+
+        except ValueError:
+            timestamp = None
+
+            for fmt in (
+                "%a %b %d %H:%M:%S %Y",
+                "%Y-%m-%d %H:%M:%S",
+                "%Y-%m-%dT%H:%M:%S",
+            ):
+
+                try:
+                    timestamp = datetime.strptime(
+                        raw_timestamp,
+                        fmt,
+                    )
+
+                    break
+
+                except ValueError:
+                    continue
+
+    if timestamp is None:
+        return None
+
+    if timestamp.tzinfo is None:
+        timestamp = timestamp.replace(
+            tzinfo=timezone.utc
+        )
+
+    return timestamp
+
+
+def format_wib_timestamp(value):
+
+    timestamp = parse_timestamp_datetime(
+        value
+    )
+
+    if timestamp is None:
+        return value
+
+    return (
+        timestamp.astimezone(
+            WIB_TIMEZONE
+        ).strftime(
+            "%Y-%m-%d %H:%M:%S WIB"
+        )
+    )
 
 
 def print_detection_log(
@@ -470,11 +542,14 @@ def main():
 
                     telegram_message = (
                         build_attack_alert(
-                            timestamp=ts,
+                            timestamp=format_wib_timestamp(
+                                ts
+                            ),
                             source_ip=ip,
                             method=method,
                             uri=uri,
                             http_status=status,
+                            attack_type=attack_type,
                             prediction=prediction,
                             confidence=confidence,
                             threshold=threshold,

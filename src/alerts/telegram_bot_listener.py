@@ -5,8 +5,9 @@ import re
 from dotenv import load_dotenv
 
 from telegram import (
+    BotCommand,
+    MenuButtonCommands,
     Update,
-    ReplyKeyboardMarkup,
     ReplyKeyboardRemove,
 )
 
@@ -64,6 +65,29 @@ EMAIL_PATTERN = re.compile(
 
 class TelegramBotListener:
 
+    COMMANDS = [
+        BotCommand(
+            "start",
+            "start the bot",
+        ),
+        BotCommand(
+            "status",
+            "check status of bot",
+        ),
+        BotCommand(
+            "threshold",
+            "change confidence threshold",
+        ),
+        BotCommand(
+            "mute",
+            "Disable/Mute notification",
+        ),
+        BotCommand(
+            "logout",
+            "logout from bot",
+        ),
+    ]
+
     def __init__(self):
 
         self.token = os.getenv(
@@ -78,6 +102,9 @@ class TelegramBotListener:
         self.app = (
             Application.builder()
             .token(self.token)
+            .post_init(
+                self.configure_command_menu
+            )
             .build()
         )
 
@@ -92,6 +119,21 @@ class TelegramBotListener:
                 CommandHandler(
                     "start",
                     self.start,
+                ),
+
+                CommandHandler(
+                    "threshold",
+                    self.probability_menu,
+                ),
+
+                CommandHandler(
+                    "mute",
+                    self.mute_notification,
+                ),
+
+                CommandHandler(
+                    "logout",
+                    self.logout,
                 ),
 
                 MessageHandler(
@@ -157,6 +199,22 @@ class TelegramBotListener:
                 CommandHandler(
                     "menu",
                     self.menu,
+                ),
+                CommandHandler(
+                    "status",
+                    self.status,
+                ),
+                CommandHandler(
+                    "threshold",
+                    self.probability_menu,
+                ),
+                CommandHandler(
+                    "mute",
+                    self.mute_notification,
+                ),
+                CommandHandler(
+                    "logout",
+                    self.logout,
                 )
             ],
         )
@@ -180,44 +238,51 @@ class TelegramBotListener:
         )
 
         self.app.add_handler(
+            CommandHandler(
+                "threshold",
+                self.probability_menu,
+            )
+        )
+
+        self.app.add_handler(
+            CommandHandler(
+                "mute",
+                self.mute_notification,
+            )
+        )
+
+        self.app.add_handler(
+            CommandHandler(
+                "logout",
+                self.logout,
+            )
+        )
+
+        self.app.add_handler(
             CallbackQueryHandler(
                 self.handle_attack_feedback,
                 pattern="^attack_",
             )
         )
 
+    async def configure_command_menu(
+        self,
+        application: Application,
+    ):
+
+        await application.bot.set_my_commands(
+            self.COMMANDS
+        )
+
+        await application.bot.set_chat_menu_button(
+            menu_button=MenuButtonCommands()
+        )
+
     def build_main_menu(
         self,
         chat_id,
     ):
-
-        subscribed = (
-            get_subscription_status(
-                chat_id
-            )
-        )
-
-        notification_button = (
-            "🔕 Disable Notification"
-            if subscribed
-            else "🔔 Enable Notification"
-        )
-
-        keyboard = [
-            [
-                "📊 Probability",
-                "📡 Status",
-            ],
-            [
-                notification_button,
-                "🚪 Logout",
-            ],
-        ]
-
-        return ReplyKeyboardMarkup(
-            keyboard,
-            resize_keyboard=True,
-        )
+        return ReplyKeyboardRemove()
 
     async def menu(
         self,
@@ -238,7 +303,7 @@ class TelegramBotListener:
             return ConversationHandler.END
 
         await update.message.reply_text(
-            "Main menu",
+            "Use the Menu button to choose a command.",
             reply_markup=self.build_main_menu(
                 chat_id
             ),
@@ -259,7 +324,10 @@ class TelegramBotListener:
         if is_authorized(chat_id):
 
             await update.message.reply_text(
-                "You are already authenticated.",
+                (
+                    "You are already authenticated.\n"
+                    "Use the Menu button to choose a command."
+                ),
                 reply_markup=self.build_main_menu(
                     chat_id
                 ),
@@ -394,7 +462,8 @@ class TelegramBotListener:
         await update.message.reply_text(
             (
                 "Authentication successful.\n"
-                "You will now receive alerts."
+                "You will now receive alerts.\n\n"
+                "Use the Menu button to choose a command."
             ),
             reply_markup=self.build_main_menu(
                 update.effective_chat.id
@@ -429,9 +498,9 @@ class TelegramBotListener:
 
         await update.message.reply_text(
             (
-                f"Current minimum probability: "
+                f"Current confidence threshold: "
                 f"{current_probability * 100:.0f}%\n\n"
-                "Enter new minimum probability (0-100):"
+                "Enter new confidence threshold (0-100):"
             )
         )
 
@@ -465,7 +534,7 @@ class TelegramBotListener:
         if probability < 0 or probability > 100:
 
             await update.message.reply_text(
-                "Probability must be between 0-100."
+                "Threshold must be between 0-100."
             )
 
             return SET_PROBABILITY
@@ -481,7 +550,7 @@ class TelegramBotListener:
 
         await update.message.reply_text(
             (
-                f"Minimum probability updated "
+                f"Confidence threshold updated "
                 f"to {probability:.0f}%"
             ),
             reply_markup=self.build_main_menu(
@@ -534,6 +603,38 @@ class TelegramBotListener:
             (
                 f"Notifications {status_text}."
             ),
+            reply_markup=self.build_main_menu(
+                chat_id
+            ),
+        )
+
+        return ConversationHandler.END
+
+    async def mute_notification(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE,
+    ):
+
+        chat_id = (
+            update.effective_chat.id
+        )
+
+        if not is_authorized(chat_id):
+
+            await update.message.reply_text(
+                "Unauthorized."
+            )
+
+            return ConversationHandler.END
+
+        update_subscription_status(
+            chat_id,
+            False,
+        )
+
+        await update.message.reply_text(
+            "Notifications disabled.",
             reply_markup=self.build_main_menu(
                 chat_id
             ),
@@ -609,7 +710,7 @@ class TelegramBotListener:
                 "Bot operational.\n\n"
                 f"Notification: "
                 f"{'enabled' if subscribed else 'disabled'}\n"
-                f"Minimum probability: "
+                f"Confidence threshold: "
                 f"{current_probability * 100:.0f}%"
             ),
             reply_markup=self.build_main_menu(
