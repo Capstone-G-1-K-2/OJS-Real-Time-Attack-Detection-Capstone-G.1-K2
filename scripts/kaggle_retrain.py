@@ -447,16 +447,30 @@ class KaggleRetrainer:
                 "Deploy dibatalkan, model lama tetap aktif."
             )
 
-        if self.model_file.exists():
-            bpath = self.backup_mgr.backup()
-            self.logger.info(f"[OK] Backup model lama: {bpath}")
-            self.backup_mgr.cleanup(self.keep_backups)
+        # ── Backup model & metrics dengan timestamp yang sama ─────
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        self.backup_dir.mkdir(parents=True, exist_ok=True)
 
+        if self.model_file.exists():
+            bpath = self.backup_dir / f"modsec_xgb_{ts}.pkl"
+            shutil.copy2(self.model_file, bpath)
+            self.logger.info(f"[OK] Backup model lama: {bpath}")
+
+        if self.metrics_file.exists():
+            mpath = self.backup_dir / f"modsec_metrics_{ts}.json"
+            shutil.copy2(self.metrics_file, mpath)
+            self.logger.info(f"[OK] Backup metrics lama: {mpath}")
+
+        # Cleanup backup (hanya model .pkl, metrics .json dibiarkan)
+        self.backup_mgr.cleanup(self.keep_backups)
+
+        # ── Deploy baru ──────────────────────────────────────────
         self.model_file.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(model_path, self.model_file)
         shutil.copy2(metrics_path, self.metrics_file)
         self.logger.info(f"[OK] Model baru deploy: {self.model_file}")
 
+        # Smoke test
         import pickle
         with open(self.model_file, "rb") as f:
             pickle.load(f)
