@@ -464,6 +464,16 @@ class KaggleRetrainer:
         # Cleanup backup (hanya model .pkl, metrics .json dibiarkan)
         self.backup_mgr.cleanup(self.keep_backups)
 
+        metric_backups = sorted(
+            self.backup_dir.glob("modsec_metrics_*.json"),
+            key=lambda p: p.stat().st_mtime
+        )
+        while len(metric_backups) > self.keep_backups:
+            old = metric_backups.pop(0)
+            old.unlink()
+            self.logger.info(f"[OK] Cleaned old metrics backup: {old}")
+
+
         # ── Deploy baru ──────────────────────────────────────────
         self.model_file.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(model_path, self.model_file)
