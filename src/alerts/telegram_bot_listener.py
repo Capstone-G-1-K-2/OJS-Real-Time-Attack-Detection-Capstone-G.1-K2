@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 
 from telegram import (
     BotCommand,
+    BotCommandScopeChat,
     MenuButtonCommands,
     Update,
     ReplyKeyboardRemove,
@@ -65,28 +66,14 @@ EMAIL_PATTERN = re.compile(
 
 class TelegramBotListener:
 
-    COMMANDS = [
-        BotCommand(
-            "start",
-            "start the bot",
-        ),
-        BotCommand(
-            "status",
-            "check status of bot",
-        ),
-        BotCommand(
-            "threshold",
-            "change confidence threshold",
-        ),
-        BotCommand(
-            "mute",
-            "Disable/Mute notification",
-        ),
-        BotCommand(
-            "logout",
-            "logout from bot",
-        ),
-    ]
+    COMMAND_DESCRIPTIONS = {
+        "start": "🚀 Mulai bot ini",
+        "status": "⚙️ Periksa status bot",
+        "threshold": "👁 Ubah threshold kepercayaan",
+        "mute": "🔕 Matikan Notifikasi",
+        "unmute": "🔔 Hidupkan Notifikasi",
+        "logout": "🚪 Logout dari bot",
+    }
 
     def __init__(self):
 
@@ -129,6 +116,11 @@ class TelegramBotListener:
                 CommandHandler(
                     "mute",
                     self.mute_notification,
+                ),
+
+                CommandHandler(
+                    "unmute",
+                    self.unmute_notification,
                 ),
 
                 CommandHandler(
@@ -213,6 +205,10 @@ class TelegramBotListener:
                     self.mute_notification,
                 ),
                 CommandHandler(
+                    "unmute",
+                    self.unmute_notification,
+                ),
+                CommandHandler(
                     "logout",
                     self.logout,
                 )
@@ -253,6 +249,13 @@ class TelegramBotListener:
 
         self.app.add_handler(
             CommandHandler(
+                "unmute",
+                self.unmute_notification,
+            )
+        )
+
+        self.app.add_handler(
+            CommandHandler(
                 "logout",
                 self.logout,
             )
@@ -271,11 +274,71 @@ class TelegramBotListener:
     ):
 
         await application.bot.set_my_commands(
-            self.COMMANDS
+            self.build_command_menu(
+                subscribed=True
+            )
         )
 
         await application.bot.set_chat_menu_button(
             menu_button=MenuButtonCommands()
+        )
+
+    def build_command_menu(
+        self,
+        subscribed,
+    ):
+
+        notification_command = (
+            "mute"
+            if subscribed
+            else "unmute"
+        )
+
+        return [
+            self.build_command(command)
+            for command in (
+                "start",
+                "status",
+                "threshold",
+                notification_command,
+                "logout",
+            )
+        ]
+
+    def build_command(
+        self,
+        command,
+    ):
+
+        return BotCommand(
+            command,
+            self.COMMAND_DESCRIPTIONS[
+                command
+            ],
+        )
+
+    async def configure_chat_command_menu(
+        self,
+        context: ContextTypes.DEFAULT_TYPE,
+        chat_id,
+    ):
+
+        subscribed = get_subscription_status(
+            chat_id
+        )
+
+        await context.bot.set_my_commands(
+            self.build_command_menu(
+                subscribed
+            ),
+            scope=BotCommandScopeChat(
+                chat_id=chat_id
+            ),
+        )
+
+        await context.bot.set_chat_menu_button(
+            chat_id=chat_id,
+            menu_button=MenuButtonCommands(),
         )
 
     def build_main_menu(
@@ -302,6 +365,11 @@ class TelegramBotListener:
 
             return ConversationHandler.END
 
+        await self.configure_chat_command_menu(
+            context,
+            chat_id,
+        )
+
         await update.message.reply_text(
             "Use the Menu button to choose a command.",
             reply_markup=self.build_main_menu(
@@ -322,6 +390,11 @@ class TelegramBotListener:
         )
 
         if is_authorized(chat_id):
+
+            await self.configure_chat_command_menu(
+                context,
+                chat_id,
+            )
 
             await update.message.reply_text(
                 (
@@ -459,6 +532,11 @@ class TelegramBotListener:
             update.effective_chat.id,
         )
 
+        await self.configure_chat_command_menu(
+            context,
+            update.effective_chat.id,
+        )
+
         await update.message.reply_text(
             (
                 "Authentication successful.\n"
@@ -489,6 +567,11 @@ class TelegramBotListener:
             )
 
             return ConversationHandler.END
+
+        await self.configure_chat_command_menu(
+            context,
+            chat_id,
+        )
 
         current_probability = (
             get_user_probability(
@@ -548,6 +631,11 @@ class TelegramBotListener:
             normalized_probability,
         )
 
+        await self.configure_chat_command_menu(
+            context,
+            chat_id,
+        )
+
         await update.message.reply_text(
             (
                 f"Confidence threshold updated "
@@ -593,6 +681,11 @@ class TelegramBotListener:
             new_status,
         )
 
+        await self.configure_chat_command_menu(
+            context,
+            chat_id,
+        )
+
         status_text = (
             "enabled"
             if new_status
@@ -633,8 +726,50 @@ class TelegramBotListener:
             False,
         )
 
+        await self.configure_chat_command_menu(
+            context,
+            chat_id,
+        )
+
         await update.message.reply_text(
             "Notifications disabled.",
+            reply_markup=self.build_main_menu(
+                chat_id
+            ),
+        )
+
+        return ConversationHandler.END
+
+    async def unmute_notification(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE,
+    ):
+
+        chat_id = (
+            update.effective_chat.id
+        )
+
+        if not is_authorized(chat_id):
+
+            await update.message.reply_text(
+                "Unauthorized."
+            )
+
+            return ConversationHandler.END
+
+        update_subscription_status(
+            chat_id,
+            True,
+        )
+
+        await self.configure_chat_command_menu(
+            context,
+            chat_id,
+        )
+
+        await update.message.reply_text(
+            "Notifications enabled.",
             reply_markup=self.build_main_menu(
                 chat_id
             ),
@@ -665,6 +800,12 @@ class TelegramBotListener:
 
         context.user_data.clear()
 
+        await context.bot.delete_my_commands(
+            scope=BotCommandScopeChat(
+                chat_id=chat_id
+            ),
+        )
+
         await update.message.reply_text(
             (
                 "Logged out.\n\n"
@@ -692,6 +833,11 @@ class TelegramBotListener:
             )
 
             return ConversationHandler.END
+
+        await self.configure_chat_command_menu(
+            context,
+            chat_id,
+        )
 
         current_probability = (
             get_user_probability(
