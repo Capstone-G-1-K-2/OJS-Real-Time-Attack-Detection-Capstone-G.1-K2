@@ -5,12 +5,11 @@ from pathlib import Path
 
 def deploy():
     vps_host = "207.2.122.94"
-    vps_user = "root"
+    vps_user = "capstone"
     ssh_key_path = "C:/Users/user/.ssh/id_ed25519"
 
-    local_model = Path("models/trained_models/modsec_xgb_with_preproc.pkl")
-    # Gunakan path absolut (tanpa ~) agar SFTP lebih stabil
-    remote_dir = "/root/OJS-Real-Time-Attack-Detection-Capstone-G.1-K2/docker-ojs/inference"
+    local_model = Path("models/trained_models/modsec_xgb.pkl")
+    remote_dir = "/home/capstone/ojs_git/docker-ojs/inference"
     remote_model = f"{remote_dir}/model.pkl"
 
     try:
