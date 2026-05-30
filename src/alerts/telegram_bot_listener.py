@@ -2,6 +2,9 @@ import os
 import logging
 import re
 
+from datetime import datetime
+from html import escape
+
 from dotenv import load_dotenv
 
 from telegram import (
@@ -51,6 +54,10 @@ from src.db.modsec_event_repository import (
     mark_false_positive_by_attack_event_id,
 )
 
+from src.db.status_repository import (
+    get_status_metrics,
+)
+
 load_dotenv()
 
 logging.basicConfig(level=logging.INFO)
@@ -76,6 +83,8 @@ class TelegramBotListener:
     }
 
     def __init__(self):
+
+        self.started_at = datetime.now()
 
         self.token = os.getenv(
             "TELEGRAM_TOKEN"
@@ -851,14 +860,61 @@ class TelegramBotListener:
             )
         )
 
+        try:
+
+            metrics = get_status_metrics()
+
+        except Exception:
+
+            logger.exception(
+                "Failed loading status metrics"
+            )
+
+            metrics = {
+                "overall_logs": 0,
+                "attack_logs": 0,
+                "most_attack_type": "Unavailable",
+                "attacks_today": 0,
+                "attacks_last_week": 0,
+                "attacks_last_month": 0,
+            }
+
+        uptime_started_at = (
+            self.started_at.strftime(
+                "%Y/%m/%d %H:%M"
+            )
+        )
+
+        notification_status = (
+            "On"
+            if subscribed
+            else "Off"
+        )
+
+        most_attack_type = escape(
+            str(
+                metrics[
+                    "most_attack_type"
+                ]
+            )
+        )
+
         await update.message.reply_text(
             (
-                "Bot operational.\n\n"
-                f"Notification: "
-                f"{'enabled' if subscribed else 'disabled'}\n"
-                f"Confidence threshold: "
-                f"{current_probability * 100:.0f}%"
+                "<b><u>🤖 System Status</u></b>\n"
+                f"Bot Uptime: {uptime_started_at}\n"
+                f"Notification: {notification_status}\n"
+                f"Current Threshold: {current_probability * 100:.0f}%\n\n"
+                "<b><u>📈 Dataset Information</u></b>\n"
+                f"Overall Logs: {metrics['overall_logs']}\n"
+                f"Attack Logs: {metrics['attack_logs']}\n"
+                f"Most attack type: {most_attack_type}\n\n"
+                "<b><u>⚔️ Attack History</u></b>\n"
+                f"Attack occurred today: {metrics['attacks_today']}\n"
+                f"Attack occurred last week: {metrics['attacks_last_week']}\n"
+                f"Attack occurred last month: {metrics['attacks_last_month']}"
             ),
+            parse_mode="HTML",
             reply_markup=self.build_main_menu(
                 chat_id
             ),
