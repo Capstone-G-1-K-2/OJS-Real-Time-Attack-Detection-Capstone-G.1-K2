@@ -294,3 +294,4 @@ docker-ojs/volumes/private/
 docker-ojs/volumes/public/
 docker-ojs/volumes/db-import/
 
+sync_capstone.sh
