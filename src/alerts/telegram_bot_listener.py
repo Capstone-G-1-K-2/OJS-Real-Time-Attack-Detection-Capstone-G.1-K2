@@ -1,15 +1,20 @@
 import os
 import logging
 import re
+import asyncio
+import time
 
 from datetime import datetime
 from html import escape
+from pathlib import Path
 
 from dotenv import load_dotenv
 
 from telegram import (
     BotCommand,
     BotCommandScopeChat,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
     MenuButtonCommands,
     Update,
     ReplyKeyboardRemove,
@@ -56,6 +61,7 @@ from src.db.modsec_event_repository import (
 
 from src.db.status_repository import (
     get_status_metrics,
+    set_attack_notifications_paused,
 )
 
 load_dotenv()
@@ -77,6 +83,7 @@ class TelegramBotListener:
         "start": "🚀 Mulai bot ini",
         "status": "⚙️ Periksa status bot",
         "threshold": "👁 Ubah threshold kepercayaan",
+        "train": "🎓 Latih ulang model",
         "mute": "🔕 Matikan Notifikasi",
         "unmute": "🔔 Hidupkan Notifikasi",
         "logout": "🚪 Logout dari bot",
@@ -85,6 +92,7 @@ class TelegramBotListener:
     def __init__(self):
 
         self.started_at = datetime.now()
+        self.training_in_progress = False
 
         self.token = os.getenv(
             "TELEGRAM_TOKEN"
@@ -120,6 +128,11 @@ class TelegramBotListener:
                 CommandHandler(
                     "threshold",
                     self.probability_menu,
+                ),
+
+                CommandHandler(
+                    "train",
+                    self.train,
                 ),
 
                 CommandHandler(
@@ -210,6 +223,10 @@ class TelegramBotListener:
                     self.probability_menu,
                 ),
                 CommandHandler(
+                    "train",
+                    self.train,
+                ),
+                CommandHandler(
                     "mute",
                     self.mute_notification,
                 ),
@@ -251,6 +268,13 @@ class TelegramBotListener:
 
         self.app.add_handler(
             CommandHandler(
+                "train",
+                self.train,
+            )
+        )
+
+        self.app.add_handler(
+            CommandHandler(
                 "mute",
                 self.mute_notification,
             )
@@ -274,6 +298,13 @@ class TelegramBotListener:
             CallbackQueryHandler(
                 self.handle_attack_feedback,
                 pattern="^attack_",
+            )
+        )
+
+        self.app.add_handler(
+            CallbackQueryHandler(
+                self.handle_train_confirmation,
+                pattern="^train_",
             )
         )
 
@@ -309,6 +340,7 @@ class TelegramBotListener:
                 "start",
                 "status",
                 "threshold",
+                "train",
                 notification_command,
                 "logout",
             )
@@ -921,6 +953,222 @@ class TelegramBotListener:
         )
 
         return ConversationHandler.END
+
+    async def train(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE,
+    ):
+
+        chat_id = (
+            update.effective_chat.id
+        )
+
+        if not is_authorized(chat_id):
+
+            await update.message.reply_text(
+                "Unauthorized."
+            )
+
+            return ConversationHandler.END
+
+        if self.training_in_progress:
+
+            await update.message.reply_text(
+                "Training is already running."
+            )
+
+            return ConversationHandler.END
+
+        keyboard = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton(
+                    "Yes",
+                    callback_data="train_yes",
+                ),
+                InlineKeyboardButton(
+                    "No",
+                    callback_data="train_no",
+                ),
+            ]
+        ])
+
+        await update.message.reply_text(
+            "Are you sure you want to perform retraining ?",
+            reply_markup=keyboard,
+        )
+
+        return ConversationHandler.END
+
+    async def handle_train_confirmation(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE,
+    ):
+
+        query = update.callback_query
+        chat_id = update.effective_chat.id
+
+        await query.answer()
+
+        if not is_authorized(chat_id):
+
+            await query.message.reply_text(
+                "Unauthorized."
+            )
+
+            return
+
+        await query.edit_message_reply_markup(
+            reply_markup=None
+        )
+
+        if query.data == "train_no":
+
+            await query.message.reply_text(
+                "Training aborted"
+            )
+
+            return
+
+        if query.data != "train_yes":
+            return
+
+        if self.training_in_progress:
+
+            await query.message.reply_text(
+                "Training is already running."
+            )
+
+            return
+
+        self.training_in_progress = True
+
+        await query.message.reply_text(
+            "Start training... please wait"
+        )
+
+        try:
+
+            set_attack_notifications_paused(
+                True
+            )
+
+            result = await asyncio.to_thread(
+                self.run_retraining
+            )
+
+        except Exception as exc:
+
+            logger.exception(
+                "Training failed"
+            )
+
+            await query.message.reply_text(
+                f"Training failed: {escape(str(exc))}",
+                parse_mode="HTML",
+            )
+
+            return
+
+        finally:
+
+            try:
+                set_attack_notifications_paused(
+                    False
+                )
+            except Exception:
+                logger.exception(
+                    "Failed resuming attack notifications"
+                )
+
+            self.training_in_progress = False
+
+        await query.message.reply_text(
+            self.format_training_result(
+                result
+            ),
+            parse_mode="HTML",
+        )
+
+    def run_retraining(self):
+
+        from scripts.export_modsec_events_for_retraining import (
+            export_events,
+        )
+        from scripts.run_modsec_training import (
+            train,
+        )
+
+        timestamp = datetime.now().strftime(
+            "%y%m%d%H%M%S"
+        )
+        model_path = Path(
+            f"models/trained_models/model_{timestamp}.pkl"
+        )
+        metrics_path = Path(
+            f"models/trained_models/model_{timestamp}_metrics.json"
+        )
+        dataset_path = Path(
+            f"data/processed/retraining_dataset_{timestamp}.csv"
+        )
+
+        start_time = time.monotonic()
+
+        row_count = export_events(
+            output_path=dataset_path
+        )
+
+        if row_count == 0:
+            raise ValueError(
+                "No modsec_events rows available for retraining."
+            )
+
+        summary = train(
+            dataset_path=str(dataset_path),
+            model_output=str(model_path),
+            metrics_output=str(metrics_path),
+        )
+
+        elapsed_seconds = int(
+            round(
+                time.monotonic() - start_time
+            )
+        )
+
+        return {
+            "model_path": model_path,
+            "model_name": model_path.name,
+            "elapsed_seconds": elapsed_seconds,
+            "metrics": summary[
+                "test_metrics"
+            ],
+        }
+
+    def format_training_result(
+        self,
+        result,
+    ):
+
+        metrics = result[
+            "metrics"
+        ]
+
+        details = "\n".join([
+            f"{'Saved PKL':<12}: {result['model_name']}",
+            f"{'Time needed':<12}: {result['elapsed_seconds']} seconds",
+            f"{'Accuracy':<12}: {metrics['accuracy']:.4f}",
+            f"{'F1':<12}: {metrics['f1']:.4f}",
+            f"{'Precision':<12}: {metrics['precision']:.4f}",
+            f"{'Recall':<12}: {metrics['recall']:.4f}",
+            f"{'Roc_auc':<12}: {metrics['roc_auc']:.4f}",
+        ])
+
+        return (
+            "<b><u>🎓 Training Results</u></b>\n"
+            f"<pre>{escape(details)}</pre>\n"
+            f"📂 Saved on <code>{escape(str(result['model_path']))}</code>"
+        )
 
     async def handle_attack_feedback(
         self,
