@@ -4,7 +4,7 @@ import re
 import asyncio
 import time
 
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from html import escape
 from pathlib import Path
 
@@ -60,6 +60,7 @@ from src.db.modsec_event_repository import (
 )
 
 from src.db.status_repository import (
+    get_attack_history_summary,
     get_status_metrics,
     set_attack_notifications_paused,
 )
@@ -84,6 +85,7 @@ class TelegramBotListener:
         "status": "⚙️ Periksa status bot",
         "threshold": "👁 Ubah threshold kepercayaan",
         "train": "🎓 Latih ulang model",
+        "history": "⚔️ Tampilkan riwayat serangan",
         "mute": "🔕 Matikan Notifikasi",
         "unmute": "🔔 Hidupkan Notifikasi",
         "logout": "🚪 Logout dari bot",
@@ -133,6 +135,11 @@ class TelegramBotListener:
                 CommandHandler(
                     "train",
                     self.train,
+                ),
+
+                CommandHandler(
+                    "history",
+                    self.history,
                 ),
 
                 CommandHandler(
@@ -227,6 +234,10 @@ class TelegramBotListener:
                     self.train,
                 ),
                 CommandHandler(
+                    "history",
+                    self.history,
+                ),
+                CommandHandler(
                     "mute",
                     self.mute_notification,
                 ),
@@ -270,6 +281,13 @@ class TelegramBotListener:
             CommandHandler(
                 "train",
                 self.train,
+            )
+        )
+
+        self.app.add_handler(
+            CommandHandler(
+                "history",
+                self.history,
             )
         )
 
@@ -342,6 +360,7 @@ class TelegramBotListener:
                 "threshold",
                 "train",
                 notification_command,
+                "history",
                 "logout",
             )
         ]
@@ -953,6 +972,212 @@ class TelegramBotListener:
         )
 
         return ConversationHandler.END
+
+    async def history(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE,
+    ):
+
+        chat_id = (
+            update.effective_chat.id
+        )
+
+        if not is_authorized(chat_id):
+
+            await update.message.reply_text(
+                "Unauthorized."
+            )
+
+            return ConversationHandler.END
+
+        await self.configure_chat_command_menu(
+            context,
+            chat_id,
+        )
+
+        try:
+
+            history_summary = (
+                get_attack_history_summary()
+            )
+
+        except Exception:
+
+            logger.exception(
+                "Failed loading attack history"
+            )
+
+            await update.message.reply_text(
+                "Failed loading attack history."
+            )
+
+            return ConversationHandler.END
+
+        await update.message.reply_text(
+            self.format_attack_history(
+                history_summary
+            ),
+            parse_mode="HTML",
+            reply_markup=self.build_main_menu(
+                chat_id
+            ),
+        )
+
+        return ConversationHandler.END
+
+    def format_attack_history(
+        self,
+        history_summary,
+    ):
+
+        if history_summary[
+            "total_attacks"
+        ] == 0:
+            return (
+                "<b><u>⚔️ Attack History</u></b>\n\n"
+                "No attack history found yet."
+            )
+
+        latest_attack = (
+            self.format_wib_datetime(
+                history_summary[
+                    "latest_attack"
+                ]
+            )
+        )
+
+        summary_lines = "\n".join([
+            f"Today: {history_summary['attacks_today']}",
+            f"Last 7 Days: {history_summary['attacks_last_7_days']}",
+            f"Last 30 Days: {history_summary['attacks_last_30_days']}",
+            f"Most Attack Type: {escape(str(history_summary['most_attack_type']))}",
+            f"Most Attacker IP: {escape(str(history_summary['most_attacker_ip']))}",
+            f"Latest Attack: {escape(latest_attack)}",
+        ])
+
+        recent_lines = []
+
+        for index, attack in enumerate(
+            history_summary[
+                "recent_attacks"
+            ],
+            1,
+        ):
+
+            attack_type = (
+                attack.get("attack_type")
+                or "Unknown"
+            )
+            probability = (
+                self.format_probability(
+                    attack.get("probability")
+                )
+            )
+            attack_url = (
+                self.truncate_text(
+                    attack.get("attack_url")
+                    or "N/A",
+                    46,
+                )
+            )
+
+            recent_lines.append(
+                (
+                    f"{index}. {escape(str(attack_type))} | "
+                    f"{escape(probability)} | "
+                    f"{escape(attack_url)}"
+                )
+            )
+
+        recent_text = (
+            "\n".join(recent_lines)
+            if recent_lines
+            else "No recent attacks."
+        )
+
+        return (
+            "<b><u>⚔️ Attack History</u></b>\n"
+            f"{summary_lines}\n\n"
+            "<b><u>⌛ Recent attacks</u></b>\n"
+            f"{recent_text}"
+        )
+
+    def format_wib_datetime(
+        self,
+        value,
+    ):
+
+        if not value:
+            return "N/A"
+
+        if isinstance(
+            value,
+            datetime,
+        ):
+            timestamp = value
+        else:
+            raw_value = str(value).strip()
+            timestamp = None
+
+            for date_format in (
+                "%Y-%m-%d %H:%M:%S",
+                "%Y-%m-%dT%H:%M:%S",
+                "%Y-%m-%dT%H:%M:%SZ",
+            ):
+                try:
+                    timestamp = datetime.strptime(
+                        raw_value,
+                        date_format,
+                    )
+                    break
+                except ValueError:
+                    continue
+
+            if timestamp is None:
+                return raw_value
+
+        if timestamp.tzinfo is None:
+            timestamp = timestamp.replace(
+                tzinfo=timezone.utc
+            )
+
+        wib_timezone = timezone(
+            timedelta(hours=7),
+            "WIB",
+        )
+
+        return timestamp.astimezone(
+            wib_timezone
+        ).strftime(
+            "%Y/%m/%d %H:%M WIB"
+        )
+
+    def format_probability(
+        self,
+        value,
+    ):
+
+        if value is None:
+            return "N/A"
+
+        try:
+            return f"{float(value) * 100:.1f}%"
+        except (TypeError, ValueError):
+            return "N/A"
+
+    def truncate_text(
+        self,
+        value,
+        max_length,
+    ):
+
+        text = str(value)
+
+        if len(text) <= max_length:
+            return text
+
+        return f"{text[:max_length - 3]}..."
 
     async def train(
         self,
