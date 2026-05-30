@@ -17,6 +17,10 @@ from src.auth.repository import (
     get_all_verified_users,
 )
 
+from src.db.status_repository import (
+    are_attack_notifications_paused,
+)
+
 load_dotenv()
 
 logger = logging.getLogger(__name__)
@@ -54,6 +58,17 @@ class TelegramNotifier:
         event_id: int,
         probability: float,
     ) -> bool:
+
+        try:
+            if are_attack_notifications_paused():
+                logger.info(
+                    "Telegram alert skipped because training is running"
+                )
+                return False
+        except Exception:
+            logger.exception(
+                "Failed checking notification pause state"
+            )
 
         users = get_all_verified_users()
 

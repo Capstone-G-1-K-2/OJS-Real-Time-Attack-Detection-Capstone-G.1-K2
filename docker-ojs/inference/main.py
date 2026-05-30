@@ -18,6 +18,7 @@ from src.alerts.alert_formatter import (
 
 from src.db.attack_repository import (
     insert_attack_event,
+    mark_attack_event_sent,
 )
 
 from src.db.modsec_event_repository import (
@@ -27,6 +28,10 @@ from src.db.modsec_event_repository import (
 
 from src.preprocessing.modsec_json_parser import (
     _extract_from_json_transaction,
+)
+
+from src.inference.model_wrapper import (
+    ModelWrapper,
 )
 
 from src.security.attack_classifier import (
@@ -53,6 +58,21 @@ def load_model(path):
         model = pickle.load(f)
 
     print(f"[*] Model loaded: {type(model)}")
+
+    if not hasattr(
+        model,
+        "predict_from_json",
+    ):
+
+        print(
+            "[*] Loaded model has no predict_from_json; wrapping sklearn pipeline"
+        )
+
+        model = ModelWrapper.from_pipeline(
+            model
+        )
+
+        print(f"[*] Wrapped model: {type(model)}")
 
     return model
 
@@ -558,13 +578,28 @@ def main():
 
                     try:
 
-                        asyncio.run(
+                        send_success = asyncio.run(
                             notifier.send_alert(
                                 telegram_message,
                                 event_id,
                                 probability,
                             )
                         )
+
+                        if send_success:
+
+                            try:
+
+                                mark_attack_event_sent(
+                                    event_id
+                                )
+
+                            except Exception as db_error:
+
+                                print(
+                                    "[WARNING] Failed to mark attack event as sent:",
+                                    db_error,
+                                )
 
                     except Exception as notify_error:
 

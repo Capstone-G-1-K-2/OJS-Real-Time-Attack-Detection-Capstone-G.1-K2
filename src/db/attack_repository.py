@@ -82,3 +82,37 @@ def update_attack_assessment(
     finally:
 
         conn.close()
+
+
+def mark_attack_event_sent(
+    event_id: int,
+) -> None:
+
+    conn = get_connection()
+
+    try:
+
+        with conn.cursor() as cur:
+
+            sql = """
+            UPDATE attack_events
+            SET is_sent = 1
+            WHERE id = %s
+            """
+
+            cur.execute(
+                sql,
+                (event_id,),
+            )
+
+        conn.commit()
+
+    except Exception:
+
+        conn.rollback()
+
+        raise
+
+    finally:
+
+        conn.close()
