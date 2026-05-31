@@ -60,7 +60,7 @@ data/processed/*
 # Keep raw and dataset folders tracked, but ignore accidental dump files if needed
 data/raw/*
 !data/raw/.gitkeep
-# data/dataset/*
+data/dataset/*
 !data/dataset/.gitkeep
 
 # Reports
@@ -294,4 +294,3 @@ docker-ojs/volumes/private/
 docker-ojs/volumes/public/
 docker-ojs/volumes/db-import/
 
-sync_capstone.sh
