@@ -140,6 +140,16 @@ EXECUTABLE_EXTENSIONS = [
     r"\.so",
 ]
 
+# CVE-2023-47271: Arbitrary PHP-like File Upload via Native XML Import
+# We use negative lookbehind to ensure we don't accidentally flag /index.php as a malicious upload
+CVE_2023_47271_XML_BODY_PATTERNS = [
+    r"(?i)(?<!/index)([a-z0-9_\-./]+?\.(?:php|phtml|phar|php[0-9]?|pht))\b"
+]
+
+CVE_2023_47271_ACCESS_PATTERNS = [
+    r"(?i)^/?public/journals/[0-9]+/[^?]+\.(?:php|phtml|phar|php[0-9]?|pht)(?:\?.*)?$"
+]
+
 FILE_UPLOAD_BYPASS_PATTERNS = [
     r"\.php%00",  # null byte
     r"\.php\.jpg",  # double extension

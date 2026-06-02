@@ -15,7 +15,7 @@ with open("models/trained_models/modsec_xgb.pkl", 'rb') as f:
     model = pickle.load(f)
 
 print("[INFO] Loading dataset for dynamic sampling...")
-df = pd.read_csv("data/dataset/modsec_merged.csv", low_memory=False)
+df = pd.read_csv("data/dataset/modsec_raw_json_v2.csv", low_memory=False)
 
 # Select diverse attacks
 attacks = []
@@ -27,6 +27,11 @@ if not df[(df['label'] == 1) & (df['has_path_traversal'] == 1)].empty:
     attacks.append(("ATTACK - Path Traversal (Real Data)", df[(df['label'] == 1) & (df['has_path_traversal'] == 1)].sample(1)))
 if not df[(df['label'] == 1) & (df['has_suspicious_path'] == 1)].empty:
     attacks.append(("ATTACK - Suspicious Path (Real Data)", df[(df['label'] == 1) & (df['has_suspicious_path'] == 1)].sample(1)))
+
+if not df[(df['label'] == 1) & (df['has_cve_2023_47271_upload'] == 1)].empty:
+    attacks.append(("ATTACK - CVE-2023-47271 XML Upload (Real Data)", df[(df['label'] == 1) & (df['has_cve_2023_47271_upload'] == 1)].sample(1)))
+if not df[(df['label'] == 1) & (df['has_cve_2023_47271_rce'] == 1)].empty:
+    attacks.append(("ATTACK - CVE-2023-47271 PHP RCE (Real Data)", df[(df['label'] == 1) & (df['has_cve_2023_47271_rce'] == 1)].sample(1)))
 
 # Pad with random attacks
 remaining_attacks = df[df['label'] == 1].sample(15)

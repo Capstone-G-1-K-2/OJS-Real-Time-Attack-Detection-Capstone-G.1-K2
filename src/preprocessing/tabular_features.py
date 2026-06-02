@@ -16,6 +16,8 @@ from src.preprocessing.pattern_rules import (
     PRIVESC_PATTERNS,
     EXECUTABLE_EXTENSIONS,
     FILE_UPLOAD_BYPASS_PATTERNS,
+    CVE_2023_47271_XML_BODY_PATTERNS,
+    CVE_2023_47271_ACCESS_PATTERNS,
 )
 
 SPECIAL_CHARS_RE = re.compile(r"[^a-zA-Z0-9]")
@@ -96,6 +98,14 @@ def build_tabular_features(df: pd.DataFrame) -> pd.DataFrame:
     features["has_file_upload_bypass"] = uri_decoded.map(lambda s: _contains_pattern(s, FILE_UPLOAD_BYPASS_PATTERNS))
     features["has_cve_2021_32626"] = (
         features["has_executable_upload"] | features["has_file_upload_bypass"]
+    ).astype(int)
+
+    # CVE-2023-47271: Arbitrary PHP-like File Upload via Native XML Import
+    features["has_cve_2023_47271_upload"] = full_text.map(
+        lambda s: _contains_pattern(s, CVE_2023_47271_XML_BODY_PATTERNS)
+    ).astype(int)
+    features["has_cve_2023_47271_rce"] = uri_decoded.map(
+        lambda s: _contains_pattern(s, CVE_2023_47271_ACCESS_PATTERNS)
     ).astype(int)
 
     return features
