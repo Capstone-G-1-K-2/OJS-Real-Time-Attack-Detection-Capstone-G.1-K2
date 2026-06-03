@@ -41,8 +41,18 @@ for i, (_, row) in enumerate(remaining_attacks.iterrows()):
 
 # Select diverse normals
 normals = []
-# Just grab 7 normal samples
-normal_samples = df[df['label'] == 0].sample(7)
+
+# Add specific Normal tests to ensure no false positives on normal upload/access
+normal_upload = df[(df['label'] == 0) & (df['method'] == 'POST') & (df['uri'].str.contains('/uploadFile|/importexport', case=False, na=False))]
+if not normal_upload.empty:
+    normals.append(("NORMAL - Legitimate File Upload (Real Data)", normal_upload.sample(1)))
+
+normal_access = df[(df['label'] == 0) & (df['method'] == 'GET') & (df['uri'].str.contains('/public/journals/', case=False, na=False))]
+if not normal_access.empty:
+    normals.append(("NORMAL - Legitimate Public File Access (Real Data)", normal_access.sample(1)))
+
+# Just grab 5 random normal samples to fill
+normal_samples = df[df['label'] == 0].sample(5)
 for i, (_, row) in enumerate(normal_samples.iterrows()):
     normals.append((f"NORMAL - Random Request {i+1} (Real Data)", pd.DataFrame([row])))
 
