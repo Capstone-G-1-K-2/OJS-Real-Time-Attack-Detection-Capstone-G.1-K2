@@ -111,6 +111,8 @@ def _extract_from_json_transaction(tx: dict[str, Any]) -> dict[str, Any]:
         "has_path_traversal": 0,
         "has_command_injection": 0,
         "has_cve_2022_24181": 0,
+        "has_cve_2023_47271_upload": 0,
+        "has_cve_2023_47271_rce": 0,
         "missing_csrf_token": 0,
         "has_suspicious_referer": 0,
         "has_cve_2024_xss_privesc": 0,
@@ -208,6 +210,13 @@ def _extract_from_json_transaction(tx: dict[str, Any]) -> dict[str, Any]:
         # CVE-2022-24181: XSS via Host Header
         host_header = request.get("headers", {}).get("Host", "")
         row["has_cve_2022_24181"] = _contains_pattern(host_header, HOST_HEADER_XSS_PATTERNS)
+
+        # CVE-2023-47271: upload/RCE indicators
+        row["has_cve_2023_47271_upload"] = 1 if (
+            _contains_pattern(row["uri"], EXECUTABLE_EXTENSIONS)
+            or _contains_pattern(row["uri"], FILE_UPLOAD_BYPASS_PATTERNS)
+        ) else 0
+        row["has_cve_2023_47271_rce"] = _contains_pattern(full_text, COMMAND_INJECTION_PATTERNS)
         
         # CVE-2023-6671: CSRF (detect missing CSRF tokens in POST requests)
         # Only flag as missing if: POST request AND no CSRF pattern found

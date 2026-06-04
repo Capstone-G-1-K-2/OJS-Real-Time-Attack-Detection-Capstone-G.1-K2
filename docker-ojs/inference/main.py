@@ -246,29 +246,18 @@ def process_prediction_result(
 
 def parse_mysql_timestamp(value):
 
-    if not value:
+    timestamp = parse_timestamp_datetime(
+        value
+    )
+
+    if timestamp is None:
         return None
 
-    for fmt in (
-        "%a %b %d %H:%M:%S %Y",
-        "%Y-%m-%d %H:%M:%S",
-        "%Y-%m-%dT%H:%M:%S",
-        "%Y-%m-%dT%H:%M:%SZ",
-    ):
-
-        try:
-
-            return datetime.strptime(
-                value,
-                fmt,
-            ).strftime(
-                "%Y-%m-%d %H:%M:%S"
-            )
-
-        except ValueError:
-            continue
-
-    return None
+    return timestamp.astimezone(
+        WIB_TIMEZONE
+    ).strftime(
+        "%Y-%m-%d %H:%M:%S"
+    )
 
 
 def parse_timestamp_datetime(value):
@@ -457,6 +446,10 @@ def main():
                     ts
                 )
             )
+
+            parsed_row[
+                "timestamp"
+            ] = sql_timestamp
 
             messages = input_data[
                 "messages"
