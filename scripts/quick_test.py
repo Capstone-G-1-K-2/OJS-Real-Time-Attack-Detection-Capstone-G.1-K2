@@ -19,6 +19,40 @@ df = pd.read_csv("data/dataset/modsec_raw_json_v2.csv", low_memory=False)
 
 # Select diverse attacks
 attacks = []
+
+# Hardcoded Special Cases from latest user logs
+cve_upload_test = pd.DataFrame([{
+    "uri": "/index.php/OJS/management/importexport/plugin/NativeImportExportPlugin/uploadImportXML",
+    "method": "POST",
+    "status": 200,
+    "has_cve_2023_47271_upload": 1,
+    "has_cve_2023_47271_rce": 0,
+    "severity_score": 4,
+    "rule_count": 1,
+    "bytes_sent": 82,
+    "user_agent_len": 105,
+    "uri_len": 86,
+    "is_blocked": 0,
+    "label": 1
+}])
+attacks.append(("ATTACK - CVE-2023-47271 Upload (Manual Special)", cve_upload_test))
+
+cve_rce_test = pd.DataFrame([{
+    "uri": "/public/journals/1/capstone-document-root-1780560465968.php?cacheBust=1780560484355",
+    "method": "GET",
+    "status": 200,
+    "has_cve_2023_47271_upload": 0,
+    "has_cve_2023_47271_rce": 1,
+    "severity_score": 0,
+    "rule_count": 0,
+    "bytes_sent": 13,
+    "user_agent_len": 11,
+    "uri_len": 86,
+    "is_blocked": 0,
+    "label": 1
+}])
+attacks.append(("ATTACK - CVE-2023-47271 RCE (Manual Special)", cve_rce_test))
+
 if not df[(df['label'] == 1) & (df['has_sqli'] == 1)].empty:
     attacks.append(("ATTACK - SQL Injection (Real Data)", df[(df['label'] == 1) & (df['has_sqli'] == 1)].sample(1)))
 if not df[(df['label'] == 1) & (df['has_xss'] == 1)].empty:

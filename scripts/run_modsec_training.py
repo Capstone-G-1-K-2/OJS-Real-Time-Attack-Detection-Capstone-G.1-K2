@@ -86,6 +86,8 @@ def _build_pipeline(model: XGBClassifier | None = None, use_smote: bool = False,
         "has_cve_2024_xss_privesc",
         "has_privesc_attempt",
         "has_cve_2021_32626",
+        "has_cve_2023_47271_upload",
+        "has_cve_2023_47271_rce",
     ]
     categorical_features = ["method"]
     text_feature = "uri"
@@ -366,6 +368,10 @@ def train(
         df["has_path_traversal"] = 0
     if "has_command_injection" not in df.columns:
         df["has_command_injection"] = 0
+    if "has_cve_2023_47271_upload" not in df.columns:
+        df["has_cve_2023_47271_upload"] = 0
+    if "has_cve_2023_47271_rce" not in df.columns:
+        df["has_cve_2023_47271_rce"] = 0
 
     required_columns = {
         "method",
@@ -380,6 +386,8 @@ def train(
         "has_suspicious_path",
         "has_path_traversal",
         "has_command_injection",
+        "has_cve_2023_47271_upload",
+        "has_cve_2023_47271_rce",
         "label",
     }
 
@@ -396,6 +404,14 @@ def train(
     X_train, X_test, y_train, y_test = train_test_split(
         X, y, test_size=test_size, random_state=random_state, stratify=y
     )
+
+    # Compute custom sample weights for training
+    import numpy as np
+    sample_weights = np.ones(len(y_train))
+    cve_mask = ((X_train["has_cve_2023_47271_upload"] == 1) | (X_train["has_cve_2023_47271_rce"] == 1)) & (y_train == 1)
+    sample_weights[cve_mask] = 10.0
+    fit_params = {"model__sample_weight": sample_weights}
+
 
     # Determine SMOTE k_neighbors based on minority count
     smote_k = 5
@@ -535,7 +551,7 @@ def train(
                         print(f"  {metric:12} - mean: {scores.mean():.4f}, std: {scores.std():.4f}")
 
                 print(f"[INFO] Training final model on {candidate_device}...")
-                pipeline.fit(X_train, y_train)
+                pipeline.fit(X_train, y_train, **fit_params)
                 break
             except Exception as exc:
                 if candidate_device == "cuda":

@@ -233,7 +233,9 @@ def _extract_from_json_transaction(tx: dict[str, Any]) -> dict[str, Any]:
         # CVE-2023-47271: XML Body File Upload & Access
         # We assume the request body might be logged in matched_data or msg if it triggered the modsec rule
         # or we check the full_text.
-        row["has_cve_2023_47271_upload"] = _contains_pattern(full_text, CVE_2023_47271_XML_BODY_PATTERNS)
+        # Clean /index.php from the text to prevent false positives on normal routing.
+        clean_text_for_upload = full_text.replace("/index.php", "").replace("index.php", "")
+        row["has_cve_2023_47271_upload"] = _contains_pattern(clean_text_for_upload, CVE_2023_47271_XML_BODY_PATTERNS)
         row["has_cve_2023_47271_rce"] = _contains_pattern(row["uri"], CVE_2023_47271_ACCESS_PATTERNS)
         
     except Exception as e:

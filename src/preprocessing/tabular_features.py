@@ -101,7 +101,7 @@ def build_tabular_features(df: pd.DataFrame) -> pd.DataFrame:
     ).astype(int)
 
     # CVE-2023-47271: Arbitrary PHP-like File Upload via Native XML Import
-    features["has_cve_2023_47271_upload"] = full_text.map(
+    features["has_cve_2023_47271_upload"] = full_text.str.replace('/index.php', '', case=False).str.replace('index.php', '', case=False).map(
         lambda s: _contains_pattern(s, CVE_2023_47271_XML_BODY_PATTERNS)
     ).astype(int)
     features["has_cve_2023_47271_rce"] = uri_decoded.map(
