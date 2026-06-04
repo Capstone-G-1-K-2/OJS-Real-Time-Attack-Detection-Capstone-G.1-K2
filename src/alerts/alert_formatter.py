@@ -41,14 +41,8 @@ def build_attack_alert(
 *Attack Type*
 `{attack_type}`
 
-*Prediction*
-`{prediction}`
-
-*Confidence*
-`{confidence}`
-
 *Threshold*
-`{threshold}`
+`{confidence}`
 
 ━━━━━━━━━━━━━━━━━━━━
 
