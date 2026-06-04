@@ -125,6 +125,7 @@ services:
       DB_PORT: 3306
     volumes:
       - ./volumes/logs/modsecurity:/var/log/modsecurity:ro
+      - ./volumes/logs/inference:/app/logs
       - ../src:/app/src
       - ./inference/main.py:/app/main.py
     networks:
