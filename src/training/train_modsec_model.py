@@ -53,6 +53,8 @@ def _build_pipeline() -> Pipeline:
         "has_cve_2024_xss_privesc",
         "has_privesc_attempt",
         "has_cve_2021_32626",
+        "has_cve_2023_47271_upload",
+        "has_cve_2023_47271_rce",
     ]
     categorical_features = ["method"]
     text_feature = "uri"
@@ -137,7 +139,7 @@ def train(
         "has_path_traversal", "has_command_injection", "has_cve_2022_24181",
         "has_cve_2023_47271_upload", "has_cve_2023_47271_rce",
         "missing_csrf_token", "has_suspicious_referer", "has_cve_2024_xss_privesc",
-        "has_privesc_attempt", "has_cve_2021_32626"
+        "has_privesc_attempt", "has_cve_2021_32626", "has_cve_2023_47271_upload", "has_cve_2023_47271_rce"
     ]
     for col in default_columns:
         if col not in df.columns:
@@ -166,6 +168,8 @@ def train(
         "has_cve_2024_xss_privesc",
         "has_privesc_attempt",
         "has_cve_2021_32626",
+        "has_cve_2023_47271_upload",
+        "has_cve_2023_47271_rce",
         "label",
     }
 
@@ -187,6 +191,14 @@ def train(
         stratify=y,
     )
 
+    # Compute custom sample weights for training
+    import numpy as np
+    sample_weights = np.ones(len(y_train))
+    cve_mask = ((X_train["has_cve_2023_47271_upload"] == 1) | (X_train["has_cve_2023_47271_rce"] == 1)) & (y_train == 1)
+    sample_weights[cve_mask] = 10.0
+
+    fit_params = {"model__sample_weight": sample_weights}
+
     pipeline = _build_pipeline()
 
     # Cross-validation on training set
@@ -201,12 +213,13 @@ def train(
             cv=skf,
             scoring=["accuracy", "f1", "precision", "recall", "roc_auc"],
             return_train_score=True,
+            fit_params=fit_params,
         )
         print("[INFO] Cross-validation complete.")
 
     # Train final model on full training set
     print("[INFO] Training final model...")
-    pipeline.fit(X_train, y_train)
+    pipeline.fit(X_train, y_train, **fit_params)
 
     # Evaluate on test set
     y_pred = pipeline.predict(X_test)

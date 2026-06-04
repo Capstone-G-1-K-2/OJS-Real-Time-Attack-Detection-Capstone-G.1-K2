@@ -3,23 +3,44 @@ from __future__ import annotations
 # Shared detection rules for both dataset parsing and inference feature building.
 SQLI_PATTERNS = [
     r"union\s+select",
-    r"or\s+1=1",
-    r"and\s+1=1",
+    r"select\s+.*?\s+from",
+    r"insert\s+into",
+    r"delete\s+from",
+    r"or\s+1\s*=\s*1",
+    r"or\s+['\"]1['\"]\s*=\s*['\"]1['\"]?",
+    r"and\s+1\s*=\s*1",
     r"sleep\s*\(",
+    r"waitfor\s+delay",
+    r"benchmark\s*\(",
     r"information_schema",
+    r"sysobjects",
+    r"group_concat",
     r"drop\s+table",
+    r"--\s*$",  # SQL comment at end
+    r"/\*.*?\*/"  # SQL inline comment
 ]
 
 XSS_PATTERNS = [
     r"<script",
+    r"</script>",
     r"javascript:",
+    r"vbscript:",
     r"onerror\s*=",
     r"onload\s*=",
+    r"onmouseover\s*=",
     r"alert\s*\(",
+    r"prompt\s*\(",
+    r"confirm\s*\(",
+    r"document\.cookie",
+    r"<iframe",
+    r"<svg",
+    r"<img",
+    r"eval\s*\(",
 ]
 
 SUSPICIOUS_PATH_PATTERNS = [
     r"/wp-admin",
+    r"/wp-login",
     r"/phpmyadmin",
     r"/etc/passwd",
     r"/\.env",
@@ -42,6 +63,7 @@ PATH_TRAVERSAL_PATTERNS = [
     r"%2e%2e/",  # URL encoded ../
     r"%2e%2e\\",  # URL encoded ..\
     r"\.\.%2f",  # URL encoded ../
+    r"%2e%2e%2f", # Fully encoded ../
     r"/etc/",
     r"/proc/",
     r"/sys/",
@@ -63,6 +85,11 @@ COMMAND_INJECTION_PATTERNS = [
     r"\|\s*bash",  # pipe to bash
     r"&\s*cat\s+",  # & cat
     r">\s*/dev/null",  # redirect to /dev/null (cleanup)
+    r"wget\s+",
+    r"curl\s+",
+    r"ping\s+-c",
+    r"cmd\.exe",
+    r"powershell",
 ]
 
 # ============ CVE-SPECIFIC DETECTION PATTERNS ============
@@ -111,6 +138,15 @@ EXECUTABLE_EXTENSIONS = [
     r"\.exe",
     r"\.dll",
     r"\.so",
+]
+
+# CVE-2023-47271: Arbitrary PHP-like File Upload via Native XML Import
+CVE_2023_47271_XML_BODY_PATTERNS = [
+    r"(?i)([a-z0-9_\-./]+?\.(?:php|phtml|phar|php[0-9]?|pht))\b"
+]
+
+CVE_2023_47271_ACCESS_PATTERNS = [
+    r"(?i)^/?public/journals/[0-9]+/[^?]+\.(?:php|phtml|phar|php[0-9]?|pht)(?:\?.*)?$"
 ]
 
 FILE_UPLOAD_BYPASS_PATTERNS = [

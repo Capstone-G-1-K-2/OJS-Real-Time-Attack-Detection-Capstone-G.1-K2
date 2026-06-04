@@ -25,26 +25,9 @@ from src.preprocessing.pattern_rules import (
     PRIVESC_PATTERNS,
     EXECUTABLE_EXTENSIONS,
     FILE_UPLOAD_BYPASS_PATTERNS,
+    CVE_2023_47271_XML_BODY_PATTERNS,
+    CVE_2023_47271_ACCESS_PATTERNS,
 )
-
-
-def _extract_severity_from_message(message: str) -> str:
-    """Extract severity level dari message string."""
-    severity_map = {
-        "EMERGENCY": 5,
-        "ALERT": 5,
-        "CRITICAL": 4,
-        "ERROR": 3,
-        "WARNING": 2,
-        "NOTICE": 1,
-        "INFO": 0,
-        "DEBUG": 0,
-    }
-    
-    for severity_str, score in severity_map.items():
-        if severity_str.lower() in message.lower():
-            return severity_str
-    return "INFO"
 
 
 def _severity_to_score(severity: str) -> int:
@@ -135,6 +118,8 @@ def _extract_from_json_transaction(tx: dict[str, Any]) -> dict[str, Any]:
         "has_cve_2024_xss_privesc": 0,
         "has_privesc_attempt": 0,
         "has_cve_2021_32626": 0,
+        "has_cve_2023_47271_upload": 0,
+        "has_cve_2023_47271_rce": 0,
         "label": 0,
     }
     
@@ -253,6 +238,14 @@ def _extract_from_json_transaction(tx: dict[str, Any]) -> dict[str, Any]:
         has_exec = _contains_pattern(row["uri"], EXECUTABLE_EXTENSIONS)
         has_bypass = _contains_pattern(row["uri"], FILE_UPLOAD_BYPASS_PATTERNS)
         row["has_cve_2021_32626"] = 1 if (has_exec or has_bypass) else 0
+
+        # CVE-2023-47271: XML Body File Upload & Access
+        # We assume the request body might be logged in matched_data or msg if it triggered the modsec rule
+        # or we check the full_text.
+        # Clean /index.php from the text to prevent false positives on normal routing.
+        clean_text_for_upload = full_text.replace("/index.php", "").replace("index.php", "")
+        row["has_cve_2023_47271_upload"] = _contains_pattern(clean_text_for_upload, CVE_2023_47271_XML_BODY_PATTERNS)
+        row["has_cve_2023_47271_rce"] = _contains_pattern(row["uri"], CVE_2023_47271_ACCESS_PATTERNS)
         
     except Exception as e:
         print(f"[WARN] Error extracting transaction: {e}")

@@ -92,6 +92,12 @@ class ModelWrapper:
         else:
             pred = int(self.pipeline.predict(df)[0])
 
+        # HIGH-CONFIDENCE OVERRIDE: If exact CVE signature matches, override ML
+        if row.get("has_cve_2023_47271_upload", 0) == 1 or row.get("has_cve_2023_47271_rce", 0) == 1:
+            pred = 1
+            if prob is not None:
+                prob = max(prob, 0.99)
+
         return {
             "prediction": pred,
             "probability": prob,

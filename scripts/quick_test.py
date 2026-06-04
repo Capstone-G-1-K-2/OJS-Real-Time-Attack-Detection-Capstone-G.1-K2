@@ -15,10 +15,44 @@ with open("models/trained_models/modsec_xgb.pkl", 'rb') as f:
     model = pickle.load(f)
 
 print("[INFO] Loading dataset for dynamic sampling...")
-df = pd.read_csv("data/dataset/modsec_merged.csv", low_memory=False)
+df = pd.read_csv("data/dataset/modsec_raw_json_v2.csv", low_memory=False)
 
 # Select diverse attacks
 attacks = []
+
+# Hardcoded Special Cases from latest user logs
+cve_upload_test = pd.DataFrame([{
+    "uri": "/index.php/OJS/management/importexport/plugin/NativeImportExportPlugin/uploadImportXML",
+    "method": "POST",
+    "status": 200,
+    "has_cve_2023_47271_upload": 1,
+    "has_cve_2023_47271_rce": 0,
+    "severity_score": 4,
+    "rule_count": 1,
+    "bytes_sent": 82,
+    "user_agent_len": 105,
+    "uri_len": 86,
+    "is_blocked": 0,
+    "label": 1
+}])
+attacks.append(("ATTACK - CVE-2023-47271 Upload (Manual Special)", cve_upload_test))
+
+cve_rce_test = pd.DataFrame([{
+    "uri": "/public/journals/1/capstone-document-root-1780560465968.php?cacheBust=1780560484355",
+    "method": "GET",
+    "status": 200,
+    "has_cve_2023_47271_upload": 0,
+    "has_cve_2023_47271_rce": 1,
+    "severity_score": 0,
+    "rule_count": 0,
+    "bytes_sent": 13,
+    "user_agent_len": 11,
+    "uri_len": 86,
+    "is_blocked": 0,
+    "label": 1
+}])
+attacks.append(("ATTACK - CVE-2023-47271 RCE (Manual Special)", cve_rce_test))
+
 if not df[(df['label'] == 1) & (df['has_sqli'] == 1)].empty:
     attacks.append(("ATTACK - SQL Injection (Real Data)", df[(df['label'] == 1) & (df['has_sqli'] == 1)].sample(1)))
 if not df[(df['label'] == 1) & (df['has_xss'] == 1)].empty:
@@ -28,6 +62,11 @@ if not df[(df['label'] == 1) & (df['has_path_traversal'] == 1)].empty:
 if not df[(df['label'] == 1) & (df['has_suspicious_path'] == 1)].empty:
     attacks.append(("ATTACK - Suspicious Path (Real Data)", df[(df['label'] == 1) & (df['has_suspicious_path'] == 1)].sample(1)))
 
+if not df[(df['label'] == 1) & (df['has_cve_2023_47271_upload'] == 1)].empty:
+    attacks.append(("ATTACK - CVE-2023-47271 XML Upload (Real Data)", df[(df['label'] == 1) & (df['has_cve_2023_47271_upload'] == 1)].sample(1)))
+if not df[(df['label'] == 1) & (df['has_cve_2023_47271_rce'] == 1)].empty:
+    attacks.append(("ATTACK - CVE-2023-47271 PHP RCE (Real Data)", df[(df['label'] == 1) & (df['has_cve_2023_47271_rce'] == 1)].sample(1)))
+
 # Pad with random attacks
 remaining_attacks = df[df['label'] == 1].sample(15)
 for i, (_, row) in enumerate(remaining_attacks.iterrows()):
@@ -36,8 +75,18 @@ for i, (_, row) in enumerate(remaining_attacks.iterrows()):
 
 # Select diverse normals
 normals = []
-# Just grab 7 normal samples
-normal_samples = df[df['label'] == 0].sample(7)
+
+# Add specific Normal tests to ensure no false positives on normal upload/access
+normal_upload = df[(df['label'] == 0) & (df['method'] == 'POST') & (df['uri'].str.contains('/uploadFile|/importexport', case=False, na=False))]
+if not normal_upload.empty:
+    normals.append(("NORMAL - Legitimate File Upload (Real Data)", normal_upload.sample(1)))
+
+normal_access = df[(df['label'] == 0) & (df['method'] == 'GET') & (df['uri'].str.contains('/public/journals/', case=False, na=False))]
+if not normal_access.empty:
+    normals.append(("NORMAL - Legitimate Public File Access (Real Data)", normal_access.sample(1)))
+
+# Just grab 5 random normal samples to fill
+normal_samples = df[df['label'] == 0].sample(5)
 for i, (_, row) in enumerate(normal_samples.iterrows()):
     normals.append((f"NORMAL - Random Request {i+1} (Real Data)", pd.DataFrame([row])))
 
