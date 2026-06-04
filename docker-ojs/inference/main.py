@@ -5,8 +5,10 @@ import json
 import time
 import pickle
 import asyncio
+import threading
 
 from datetime import datetime, timedelta, timezone
+from queue import Full, Queue
 
 from src.alerts.telegram_notifier import (
     TelegramNotifier,
@@ -43,6 +45,10 @@ LOG_PATH = "/var/log/modsecurity/audit.log"
 MODEL_PATH = "/app/model.pkl"
 
 ALERT_COOLDOWN_SECONDS = 10
+
+TELEGRAM_QUEUE_MAX_SIZE = int(
+    os.getenv("TELEGRAM_QUEUE_MAX_SIZE", "1000")
+)
 
 WIB_TIMEZONE = timezone(
     timedelta(hours=7),
@@ -345,6 +351,99 @@ def print_detection_log(
     )
 
 
+class TelegramNotificationWorker:
+
+    def __init__(
+        self,
+        notifier: TelegramNotifier,
+        max_size: int = TELEGRAM_QUEUE_MAX_SIZE,
+    ):
+
+        self.notifier = notifier
+        self.queue = Queue(
+            maxsize=max_size
+        )
+        self.thread = threading.Thread(
+            target=self._run,
+            name="telegram-notification-worker",
+            daemon=True,
+        )
+
+    def start(self):
+
+        self.thread.start()
+
+    def enqueue(
+        self,
+        message: str,
+        event_id: int,
+        probability: float,
+    ) -> bool:
+
+        try:
+            self.queue.put_nowait(
+                (
+                    message,
+                    event_id,
+                    probability,
+                )
+            )
+            return True
+
+        except Full:
+            print(
+                "[WARNING] Telegram notification queue full; "
+                f"leaving attack event unsent | id={event_id}"
+            )
+            return False
+
+    def _run(self):
+
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(
+            loop
+        )
+
+        while True:
+
+            (
+                message,
+                event_id,
+                probability,
+            ) = self.queue.get()
+
+            try:
+                send_success = loop.run_until_complete(
+                    self.notifier.send_alert(
+                        message,
+                        event_id,
+                        probability,
+                    )
+                )
+
+                if send_success:
+
+                    try:
+                        mark_attack_event_sent(
+                            event_id
+                        )
+
+                    except Exception as db_error:
+                        print(
+                            "[WARNING] Failed to mark attack event as sent:",
+                            db_error,
+                        )
+
+            except Exception as notify_error:
+                print(
+                    "[WARNING] Telegram notification failed:",
+                    notify_error,
+                )
+
+            finally:
+                self.queue.task_done()
+
+
 def main():
 
     print("=" * 55)
@@ -368,6 +467,10 @@ def main():
     )
 
     notifier = TelegramNotifier()
+    telegram_worker = TelegramNotificationWorker(
+        notifier
+    )
+    telegram_worker.start()
 
     print(
         "[*] Telegram notifier initialized"
@@ -569,37 +672,11 @@ def main():
                         )
                     )
 
-                    try:
-
-                        send_success = asyncio.run(
-                            notifier.send_alert(
-                                telegram_message,
-                                event_id,
-                                probability,
-                            )
-                        )
-
-                        if send_success:
-
-                            try:
-
-                                mark_attack_event_sent(
-                                    event_id
-                                )
-
-                            except Exception as db_error:
-
-                                print(
-                                    "[WARNING] Failed to mark attack event as sent:",
-                                    db_error,
-                                )
-
-                    except Exception as notify_error:
-
-                        print(
-                            "[WARNING] Telegram notification failed:",
-                            notify_error,
-                        )
+                    telegram_worker.enqueue(
+                        telegram_message,
+                        event_id,
+                        probability,
+                    )
 
                     last_alert_time = now
 

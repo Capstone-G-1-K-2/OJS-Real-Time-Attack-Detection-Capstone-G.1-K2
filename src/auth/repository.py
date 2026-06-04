@@ -43,7 +43,9 @@ def get_all_verified_users():
         cursor.execute("""
             SELECT
                 telegram_chat_id,
-                email
+                email,
+                COALESCE(min_probability, 0.5) AS min_probability,
+                COALESCE(is_subscribed, TRUE) AS is_subscribed
             FROM telegram_users
             WHERE verified=TRUE
         """)
