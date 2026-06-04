@@ -447,6 +447,10 @@ def main():
                 )
             )
 
+            parsed_row[
+                "timestamp"
+            ] = sql_timestamp
+
             messages = input_data[
                 "messages"
             ]

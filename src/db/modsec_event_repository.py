@@ -1,16 +1,10 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from src.auth.db import get_connection
-
-
-WIB_TIMEZONE = timezone(
-    timedelta(hours=7),
-    "WIB",
-)
 
 
 TEXT_FIELDS = {
@@ -50,47 +44,22 @@ def _parse_timestamp(value: Any):
         return None
 
     if isinstance(value, datetime):
-        timestamp = value
-    else:
+        return value.strftime("%Y-%m-%d %H:%M:%S")
 
-        value = str(value).strip()
+    value = str(value).strip()
 
-        timestamp = None
-
+    for fmt in (
+        "%a %b %d %H:%M:%S %Y",
+        "%Y-%m-%d %H:%M:%S",
+        "%Y-%m-%dT%H:%M:%S",
+        "%Y-%m-%dT%H:%M:%SZ",
+    ):
         try:
-            timestamp = datetime.fromisoformat(
-                value.replace("Z", "+00:00")
-            )
-
+            return datetime.strptime(value, fmt).strftime("%Y-%m-%d %H:%M:%S")
         except ValueError:
+            continue
 
-            for fmt in (
-                "%a %b %d %H:%M:%S %Y",
-                "%Y-%m-%d %H:%M:%S",
-                "%Y-%m-%dT%H:%M:%S",
-            ):
-                try:
-                    timestamp = datetime.strptime(
-                        value,
-                        fmt,
-                    )
-                    break
-                except ValueError:
-                    continue
-
-        if timestamp is None:
-            return None
-
-    if timestamp.tzinfo is None:
-        timestamp = timestamp.replace(
-            tzinfo=timezone.utc
-        )
-
-    return timestamp.astimezone(
-        WIB_TIMEZONE
-    ).strftime(
-        "%Y-%m-%d %H:%M:%S"
-    )
+    return None
 
 
 def _text_or_none(value: Any):
