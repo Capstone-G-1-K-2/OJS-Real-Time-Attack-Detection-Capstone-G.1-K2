@@ -80,6 +80,13 @@ def build_tabular_features(df: pd.DataFrame) -> pd.DataFrame:
     # CVE-2022-24181: XSS via Host Header (looks for XSS in headers/unusual locations)
     host_header = df["host_header"].map(_safe_str) if "host_header" in df.columns else pd.Series("", index=df.index)
     features["has_cve_2022_24181"] = host_header.map(lambda s: _contains_pattern(s, HOST_HEADER_XSS_PATTERNS))
+
+    # CVE-2023-47271: upload/RCE indicators
+    features["has_cve_2023_47271_upload"] = (
+        uri_decoded.map(lambda s: _contains_pattern(s, EXECUTABLE_EXTENSIONS))
+        | uri_decoded.map(lambda s: _contains_pattern(s, FILE_UPLOAD_BYPASS_PATTERNS))
+    ).astype(int)
+    features["has_cve_2023_47271_rce"] = full_text.map(lambda s: _contains_pattern(s, COMMAND_INJECTION_PATTERNS))
     
     # CVE-2023-6671: CSRF (detect missing/suspicious CSRF tokens)
     features["missing_csrf_token"] = (~full_text.map(lambda s: _contains_pattern(s, CSRF_PATTERNS))).astype(int)

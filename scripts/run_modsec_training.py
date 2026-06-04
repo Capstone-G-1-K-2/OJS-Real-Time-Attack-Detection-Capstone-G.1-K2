@@ -81,6 +81,8 @@ def _build_pipeline(model: XGBClassifier | None = None, use_smote: bool = False,
         "has_path_traversal",
         "has_command_injection",
         "has_cve_2022_24181",
+        "has_cve_2023_47271_upload",
+        "has_cve_2023_47271_rce",
         "missing_csrf_token",
         "has_suspicious_referer",
         "has_cve_2024_xss_privesc",
@@ -227,6 +229,8 @@ def _build_automl_search(use_smote: bool = False, smote_k: int = 5, cv=None) -> 
         "has_path_traversal",
         "has_command_injection",
         "has_cve_2022_24181",
+        "has_cve_2023_47271_upload",
+        "has_cve_2023_47271_rce",
         "missing_csrf_token",
         "has_suspicious_referer",
         "has_cve_2024_xss_privesc",
@@ -366,6 +370,10 @@ def train(
         df["has_path_traversal"] = 0
     if "has_command_injection" not in df.columns:
         df["has_command_injection"] = 0
+    if "has_cve_2023_47271_upload" not in df.columns:
+        df["has_cve_2023_47271_upload"] = 0
+    if "has_cve_2023_47271_rce" not in df.columns:
+        df["has_cve_2023_47271_rce"] = 0
 
     required_columns = {
         "method",

@@ -46,6 +46,8 @@ def _build_pipeline() -> Pipeline:
         "has_path_traversal",
         "has_command_injection",
         "has_cve_2022_24181",
+        "has_cve_2023_47271_upload",
+        "has_cve_2023_47271_rce",
         "missing_csrf_token",
         "has_suspicious_referer",
         "has_cve_2024_xss_privesc",
@@ -133,6 +135,7 @@ def train(
     default_columns = [
         "rule_count", "has_suspicious_path", "has_sqli_pattern", "has_xss_pattern",
         "has_path_traversal", "has_command_injection", "has_cve_2022_24181",
+        "has_cve_2023_47271_upload", "has_cve_2023_47271_rce",
         "missing_csrf_token", "has_suspicious_referer", "has_cve_2024_xss_privesc",
         "has_privesc_attempt", "has_cve_2021_32626"
     ]
@@ -156,6 +159,8 @@ def train(
         "has_path_traversal",
         "has_command_injection",
         "has_cve_2022_24181",
+        "has_cve_2023_47271_upload",
+        "has_cve_2023_47271_rce",
         "missing_csrf_token",
         "has_suspicious_referer",
         "has_cve_2024_xss_privesc",

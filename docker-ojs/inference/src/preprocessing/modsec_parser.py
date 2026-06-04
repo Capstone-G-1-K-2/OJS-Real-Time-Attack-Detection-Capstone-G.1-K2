@@ -149,6 +149,11 @@ def parse_modsecurity_jsonl(file_path: str | Path) -> pd.DataFrame:
                     str(payload.get("transaction", {}).get("request", {}).get("headers", {}).get("Host", "")),
                     HOST_HEADER_XSS_PATTERNS
                 ),
+                "has_cve_2023_47271_upload": 1 if (
+                    _contains_pattern(uri, EXECUTABLE_EXTENSIONS)
+                    or _contains_pattern(uri, FILE_UPLOAD_BYPASS_PATTERNS)
+                ) else 0,
+                "has_cve_2023_47271_rce": _contains_pattern(full_text, COMMAND_INJECTION_PATTERNS),
                 "missing_csrf_token": 1 if (is_post and not has_csrf_pattern) else 0,
                 "has_suspicious_referer": 1 if (is_post and (not referer or referer == "-")) else 0,
                 "has_privesc_attempt": _contains_pattern(full_text, PRIVESC_PATTERNS),
@@ -206,6 +211,11 @@ def parse_modsecurity_audit_log(file_path: str | Path) -> pd.DataFrame:
             "has_suspicious_path": _contains_pattern(uri, SUSPICIOUS_PATH_PATTERNS),
             "has_path_traversal": _contains_pattern(uri, PATH_TRAVERSAL_PATTERNS),
             "has_command_injection": _contains_pattern(uri, COMMAND_INJECTION_PATTERNS),
+            "has_cve_2023_47271_upload": 1 if (
+                _contains_pattern(uri, EXECUTABLE_EXTENSIONS)
+                or _contains_pattern(uri, FILE_UPLOAD_BYPASS_PATTERNS)
+            ) else 0,
+            "has_cve_2023_47271_rce": _contains_pattern(full_text, COMMAND_INJECTION_PATTERNS),
             "label": 0,
         }
         if (severity_score >= 3 or row["has_sqli_pattern"] or row["has_xss_pattern"] or 

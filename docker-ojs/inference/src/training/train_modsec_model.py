@@ -43,6 +43,8 @@ def _build_pipeline() -> Pipeline:
         "has_sqli_pattern",
         "has_xss_pattern",
         "has_suspicious_path",
+        "has_cve_2023_47271_upload",
+        "has_cve_2023_47271_rce",
     ]
     categorical_features = ["method"]
     text_feature = "uri"
@@ -130,6 +132,10 @@ def train(
         df["has_sqli_pattern"] = 0
     if "has_xss_pattern" not in df.columns:
         df["has_xss_pattern"] = 0
+    if "has_cve_2023_47271_upload" not in df.columns:
+        df["has_cve_2023_47271_upload"] = 0
+    if "has_cve_2023_47271_rce" not in df.columns:
+        df["has_cve_2023_47271_rce"] = 0
 
     required_columns = {
         "method",

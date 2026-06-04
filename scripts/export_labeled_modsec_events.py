@@ -36,6 +36,8 @@ CSV_COLUMNS = [
     "has_path_traversal",
     "has_command_injection",
     "has_cve_2022_24181",
+    "has_cve_2023_47271_upload",
+    "has_cve_2023_47271_rce",
     "missing_csrf_token",
     "has_suspicious_referer",
     "has_cve_2024_xss_privesc",
