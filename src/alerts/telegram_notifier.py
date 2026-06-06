@@ -38,11 +38,11 @@ class TelegramNotifier:
             raise ValueError("TELEGRAM_TOKEN missing")
 
         request = HTTPXRequest(
-            connection_pool_size=20,
-            pool_timeout=30.0,
-            connect_timeout=10.0,
-            read_timeout=20.0,
-            write_timeout=20.0,
+            connection_pool_size=50,
+            pool_timeout=3.0,
+            connect_timeout=3.0,
+            read_timeout=5.0,
+            write_timeout=5.0,
         )
 
         self.bot = Bot(
@@ -50,7 +50,7 @@ class TelegramNotifier:
             request=request,
         )
 
-        self.send_semaphore = asyncio.Semaphore(5)
+        self.send_semaphore = asyncio.Semaphore(1)
 
     async def send_alert(
         self,
@@ -108,6 +108,7 @@ class TelegramNotifier:
             )
 
             results.append(result)
+            await asyncio.sleep(0.2)
 
         success_count = sum(
             1
