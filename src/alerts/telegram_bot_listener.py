@@ -72,6 +72,7 @@ from src.services.model_deployment_service import (
     build_model_registry_message,
     deploy_model,
     format_metric,
+    get_current_model_info,
 )
 
 load_dotenv()
@@ -965,6 +966,17 @@ class TelegramBotListener:
                 "attacks_last_month": 0,
             }
 
+        try:
+            current_model = await asyncio.to_thread(
+                get_current_model_info
+            )
+
+        except Exception:
+            logger.exception(
+                "Failed loading current model"
+            )
+            current_model = None
+
         uptime_started_at = (
             self.started_at.strftime(
                 "%Y/%m/%d %H:%M"
@@ -988,17 +1000,15 @@ class TelegramBotListener:
         await update.message.reply_text(
             (
                 "<b><u>🤖 System Status</u></b>\n"
-                f"Bot Uptime: {uptime_started_at}\n"
+                f"Bot Uptime: Since <b>{uptime_started_at}</b>\n"
                 f"Notification: {notification_status}\n"
                 f"Current Threshold: {current_probability * 100:.0f}%\n\n"
                 "<b><u>📈 Dataset Information</u></b>\n"
                 f"Overall Logs: {metrics['overall_logs']}\n"
                 f"Attack Logs: {metrics['attack_logs']}\n"
                 f"Most attack type: {most_attack_type}\n\n"
-                "<b><u>⚔️ Attack History</u></b>\n"
-                f"Attack occurred today: {metrics['attacks_today']}\n"
-                f"Attack occurred last week: {metrics['attacks_last_week']}\n"
-                f"Attack occurred last month: {metrics['attacks_last_month']}"
+                "<b><u>🤖 Active Model</u></b>\n"
+                f"{self.format_current_model_status(current_model)}\n\n"
             ),
             parse_mode="HTML",
             reply_markup=self.build_main_menu(
@@ -1007,6 +1017,31 @@ class TelegramBotListener:
         )
 
         return ConversationHandler.END
+
+    def format_current_model_status(
+        self,
+        model_info,
+    ):
+
+        if not model_info:
+            return "No active model recorded"
+
+        model_name = escape(
+            str(
+                model_info.get(
+                    "model_name",
+                    "Unknown",
+                )
+            )
+        )
+
+        return "\n".join([
+            f"Model: <b>{model_name}</b>",
+            f"Accuracy: {format_metric(model_info.get('accuracy'))}",
+            f"Precision: {format_metric(model_info.get('precision_score'))}",
+            f"Recall: {format_metric(model_info.get('recall_score'))}",
+            f"F1 Score: {format_metric(model_info.get('f1_score'))}",
+        ])
 
     async def history(
         self,

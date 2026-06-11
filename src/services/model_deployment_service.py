@@ -281,6 +281,17 @@ def get_paginated_models(page, per_page=3):
     }
 
 
+def get_current_model_info():
+    models = scan_models()
+    sync_model_registry(
+        models
+    )
+
+    return _resolve_active_model(
+        models
+    )
+
+
 def _metric_lines(model_info, include_all=True):
     if include_all:
         return "\n".join([
