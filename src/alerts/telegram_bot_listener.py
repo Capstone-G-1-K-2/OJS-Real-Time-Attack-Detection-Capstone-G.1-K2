@@ -65,6 +65,15 @@ from src.db.status_repository import (
     set_attack_notifications_paused,
 )
 
+from src.services.model_deployment_service import (
+    ModelCopyError,
+    ModelRestartError,
+    build_confirm_message,
+    build_model_registry_message,
+    deploy_model,
+    format_metric,
+)
+
 load_dotenv()
 
 logging.basicConfig(level=logging.INFO)
@@ -85,6 +94,7 @@ class TelegramBotListener:
         "status": "⚙️ Periksa status bot",
         "threshold": "👁 Ubah threshold kepercayaan",
         "train": "🎓 Latih ulang model",
+        "model": "🤖 Pilih model aktif",
         "history": "⚔️ Tampilkan riwayat serangan",
         "mute": "🔕 Matikan Notifikasi",
         "unmute": "🔔 Hidupkan Notifikasi",
@@ -95,6 +105,7 @@ class TelegramBotListener:
 
         self.started_at = datetime.now()
         self.training_in_progress = False
+        self.model_deploy_in_progress = False
 
         self.token = os.getenv(
             "TELEGRAM_TOKEN"
@@ -135,6 +146,11 @@ class TelegramBotListener:
                 CommandHandler(
                     "train",
                     self.train,
+                ),
+
+                CommandHandler(
+                    "model",
+                    self.model,
                 ),
 
                 CommandHandler(
@@ -234,6 +250,10 @@ class TelegramBotListener:
                     self.train,
                 ),
                 CommandHandler(
+                    "model",
+                    self.model,
+                ),
+                CommandHandler(
                     "history",
                     self.history,
                 ),
@@ -286,6 +306,13 @@ class TelegramBotListener:
 
         self.app.add_handler(
             CommandHandler(
+                "model",
+                self.model,
+            )
+        )
+
+        self.app.add_handler(
+            CommandHandler(
                 "history",
                 self.history,
             )
@@ -326,6 +353,13 @@ class TelegramBotListener:
             )
         )
 
+        self.app.add_handler(
+            CallbackQueryHandler(
+                self.handle_model_callback,
+                pattern="^model:",
+            )
+        )
+
     async def configure_command_menu(
         self,
         application: Application,
@@ -359,6 +393,7 @@ class TelegramBotListener:
                 "status",
                 "threshold",
                 "train",
+                "model",
                 notification_command,
                 "history",
                 "logout",
@@ -1178,6 +1213,387 @@ class TelegramBotListener:
             return text
 
         return f"{text[:max_length - 3]}..."
+
+    async def model(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE,
+    ):
+
+        chat_id = (
+            update.effective_chat.id
+        )
+
+        if not is_authorized(chat_id):
+
+            await update.message.reply_text(
+                "Unauthorized."
+            )
+
+            return ConversationHandler.END
+
+        await self.configure_chat_command_menu(
+            context,
+            chat_id,
+        )
+
+        try:
+            await self.send_model_registry(
+                update.message,
+                context,
+                page=0,
+            )
+
+        except Exception:
+            logger.exception(
+                "Failed loading model registry"
+            )
+
+            await update.message.reply_text(
+                "Failed loading model registry."
+            )
+
+        return ConversationHandler.END
+
+    async def send_model_registry(
+        self,
+        message,
+        context: ContextTypes.DEFAULT_TYPE,
+        page,
+        edit=False,
+    ):
+
+        view = await asyncio.to_thread(
+            build_model_registry_message,
+            page,
+        )
+
+        context.user_data[
+            "model_registry_models"
+        ] = [
+            model_info["model_name"]
+            for model_info in view["models"]
+        ]
+        context.user_data[
+            "model_registry_page"
+        ] = view["page"]
+
+        reply_markup = self.build_model_keyboard(
+            view
+        )
+
+        if edit:
+            await message.edit_text(
+                view["message"],
+                parse_mode="HTML",
+                reply_markup=reply_markup,
+            )
+        else:
+            await message.reply_text(
+                view["message"],
+                parse_mode="HTML",
+                reply_markup=reply_markup,
+            )
+
+    def build_model_keyboard(
+        self,
+        view,
+    ):
+
+        keyboard = []
+
+        if view["total_pages"] > 1:
+            keyboard.append([
+                InlineKeyboardButton(
+                    "⬅️ Previous",
+                    callback_data=(
+                        f"model:page:{max(view['page'] - 1, 0)}"
+                    ),
+                ),
+                InlineKeyboardButton(
+                    "➡️ Next",
+                    callback_data=(
+                        f"model:page:{min(view['page'] + 1, view['total_pages'] - 1)}"
+                    ),
+                ),
+            ])
+
+        number_buttons = []
+        start_index = (
+            view["page"]
+            * view["per_page"]
+        )
+
+        for slot, _model_info in enumerate(
+            view["page_models"],
+            1,
+        ):
+            number_buttons.append(
+                InlineKeyboardButton(
+                    str(slot),
+                    callback_data=(
+                        f"model:pick:{start_index + slot - 1}"
+                    ),
+                )
+            )
+
+        if number_buttons:
+            keyboard.append(
+                number_buttons
+            )
+
+        return InlineKeyboardMarkup(
+            keyboard
+        )
+
+    def build_model_confirm_keyboard(
+        self,
+    ):
+
+        return InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton(
+                    "✅ Yes, deploy",
+                    callback_data="model:yes",
+                ),
+                InlineKeyboardButton(
+                    "❌ Cancel",
+                    callback_data="model:no",
+                ),
+            ]
+        ])
+
+    async def handle_model_callback(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE,
+    ):
+
+        query = update.callback_query
+        chat_id = update.effective_chat.id
+
+        await query.answer()
+
+        if not is_authorized(chat_id):
+
+            await query.message.reply_text(
+                "Unauthorized."
+            )
+
+            return
+
+        data_parts = query.data.split(
+            ":"
+        )
+
+        if len(data_parts) < 2:
+            return
+
+        action = data_parts[1]
+
+        if action == "page":
+            try:
+                page = int(
+                    data_parts[2]
+                )
+            except (IndexError, ValueError):
+                page = 0
+
+            if page == context.user_data.get(
+                "model_registry_page"
+            ):
+                return
+
+            await self.send_model_registry(
+                query.message,
+                context,
+                page=page,
+                edit=True,
+            )
+            return
+
+        if action == "pick":
+            await self.handle_model_pick(
+                query,
+                context,
+                data_parts,
+            )
+            return
+
+        if action == "no":
+            await query.edit_message_text(
+                "Deployment cancelled."
+            )
+            return
+
+        if action == "yes":
+            await self.handle_model_deploy_confirmed(
+                query,
+                context,
+                chat_id,
+            )
+
+    async def handle_model_pick(
+        self,
+        query,
+        context: ContextTypes.DEFAULT_TYPE,
+        data_parts,
+    ):
+
+        try:
+            selected_index = int(
+                data_parts[2]
+            )
+        except (IndexError, ValueError):
+            await query.message.reply_text(
+                "Invalid model selection."
+            )
+            return
+
+        model_names = context.user_data.get(
+            "model_registry_models",
+            [],
+        )
+
+        if (
+            selected_index < 0
+            or selected_index >= len(model_names)
+        ):
+            await query.message.reply_text(
+                "Invalid model selection."
+            )
+            return
+
+        model_name = model_names[
+            selected_index
+        ]
+
+        try:
+            confirm_message = await asyncio.to_thread(
+                build_confirm_message,
+                model_name,
+            )
+
+        except Exception:
+            logger.exception(
+                "Failed building model deployment confirmation"
+            )
+
+            await query.message.reply_text(
+                "Selected model is no longer available."
+            )
+            return
+
+        context.user_data[
+            "selected_model_name"
+        ] = model_name
+
+        await query.edit_message_text(
+            confirm_message,
+            parse_mode="HTML",
+            reply_markup=self.build_model_confirm_keyboard(),
+        )
+
+    async def handle_model_deploy_confirmed(
+        self,
+        query,
+        context: ContextTypes.DEFAULT_TYPE,
+        chat_id,
+    ):
+
+        if self.model_deploy_in_progress:
+
+            await query.message.reply_text(
+                "Another model deployment is already in progress. Please wait."
+            )
+            return
+
+        model_name = context.user_data.get(
+            "selected_model_name"
+        )
+
+        if not model_name:
+            await query.message.reply_text(
+                "Selected model is no longer available."
+            )
+            return
+
+        self.model_deploy_in_progress = True
+
+        await query.edit_message_text(
+            "Model is loading, please wait..."
+        )
+
+        try:
+            model_info = await asyncio.to_thread(
+                deploy_model,
+                model_name,
+                chat_id,
+            )
+
+        except ModelCopyError:
+            logger.exception(
+                "Model copy failed"
+            )
+
+            await query.message.reply_text(
+                "❌ Failed to deploy model: could not copy selected model."
+            )
+            return
+
+        except ModelRestartError:
+            logger.exception(
+                "Model restart failed"
+            )
+
+            await query.message.reply_text(
+                "❌ Model file was replaced, but inference restart failed. Please check the server."
+            )
+            return
+
+        except Exception:
+            logger.exception(
+                "Model deployment failed"
+            )
+
+            await query.message.reply_text(
+                "❌ Failed to deploy model. Please check the server."
+            )
+            return
+
+        finally:
+            self.model_deploy_in_progress = False
+
+        await query.message.reply_text(
+            self.format_model_deploy_success(
+                model_info
+            ),
+            parse_mode="HTML",
+        )
+
+    def format_model_deploy_success(
+        self,
+        model_info,
+    ):
+
+        return (
+            "✅ Successfully loaded new model!\n\n"
+            "You are now using:\n"
+            f"<b>{escape(model_info['model_name'])}</b>\n\n"
+            f"{'Accuracy':<9}: {self.format_model_metric(model_info.get('accuracy'))}\n"
+            f"{'Precision':<9}: {self.format_model_metric(model_info.get('precision_score'))}\n"
+            f"{'Recall':<9}: {self.format_model_metric(model_info.get('recall_score'))}\n"
+            f"{'F1 Score':<9}: {self.format_model_metric(model_info.get('f1_score'))}"
+        )
+
+    def format_model_metric(
+        self,
+        value,
+    ):
+
+        return format_metric(
+            value
+        )
 
     async def train(
         self,

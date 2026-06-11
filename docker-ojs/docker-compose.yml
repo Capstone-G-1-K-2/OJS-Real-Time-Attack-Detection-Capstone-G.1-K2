@@ -123,11 +123,17 @@ services:
     environment:
       DB_HOST: db
       DB_PORT: 3306
+      MODEL_PATH: /app/model.pkl
+      MODEL_REGISTRY_DIR: /app/models
+      ACTIVE_MODEL_PATH: /app/model.pkl
+      MODEL_DEPLOY_RESTART_COMMAND: docker compose -f /home/capstone/ojs_git/docker-ojs/docker-compose.yml restart inference
     volumes:
       - ./volumes/logs/modsecurity:/var/log/modsecurity:ro
       - ./volumes/logs/inference:/app/logs
       - ../src:/app/src
       - ./inference/main.py:/app/main.py
+      - ../models/trained_models:/app/models:ro
+      - ./volumes/inference/model.pkl:/app/model.pkl
     networks:
       - inside
     depends_on:

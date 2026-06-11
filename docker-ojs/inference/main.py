@@ -42,7 +42,7 @@ from src.security.attack_classifier import (
 
 LOG_PATH = "/var/log/modsecurity/audit.log"
 
-MODEL_PATH = "/app/model.pkl"
+MODEL_PATH = os.getenv("MODEL_PATH", "/app/model.pkl")
 
 ALERT_COOLDOWN_SECONDS = 10
 

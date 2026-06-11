@@ -43,6 +43,17 @@ docker compose up -d
 
 ```
 
+### Active inference model
+
+Before starting compose with the active model bind mount, make sure the file exists:
+
+```bash
+mkdir -p /home/capstone/ojs_git/docker-ojs/volumes/inference
+
+cp /home/capstone/ojs_git/models/trained_models/modsec_xgb.pkl \
+   /home/capstone/ojs_git/docker-ojs/volumes/inference/model.pkl
+```
+
 ### Extended version
 
 If you want to run it locally (or in your own server), first you need to install
