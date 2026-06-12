@@ -234,9 +234,12 @@ def _extract_from_json_transaction(tx: dict[str, Any]) -> dict[str, Any]:
         row["has_cve_2024_xss_privesc"] = 1 if (has_xss and has_privesc) else 0
         row["has_privesc_attempt"] = has_privesc
         
+        # Avoid treating OJS' normal front controller as an uploaded PHP file.
+        clean_uri_for_upload = row["uri"].replace("/index.php", "").replace("index.php", "")
+
         # CVE-2021-32626: RCE via arbitrary file upload
-        has_exec = _contains_pattern(row["uri"], EXECUTABLE_EXTENSIONS)
-        has_bypass = _contains_pattern(row["uri"], FILE_UPLOAD_BYPASS_PATTERNS)
+        has_exec = _contains_pattern(clean_uri_for_upload, EXECUTABLE_EXTENSIONS)
+        has_bypass = _contains_pattern(clean_uri_for_upload, FILE_UPLOAD_BYPASS_PATTERNS)
         row["has_cve_2021_32626"] = 1 if (has_exec or has_bypass) else 0
 
         # CVE-2023-47271: XML Body File Upload & Access

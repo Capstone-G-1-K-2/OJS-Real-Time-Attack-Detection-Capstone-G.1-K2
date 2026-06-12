@@ -94,7 +94,48 @@ RULE_CATEGORIES = {
     "980130": "Anomaly Threshold",
 }
 
-def extract_attack_type(messages):
+
+FEATURE_CATEGORIES = {
+    "has_cve_2023_47271_upload": "Upload",
+    "has_cve_2023_47271_rce": "RCE",
+    "has_cve_2022_24181": "XSS",
+    "has_cve_2021_32626": "RCE",
+    "has_cve_2024_xss_privesc": "XSS PrivEsc",
+    "has_sqli": "SQLi",
+    "has_xss": "XSS",
+    "has_path_traversal": "Path Traversal",
+    "has_command_injection": "RCE",
+}
+
+
+def _is_enabled(value):
+    try:
+        return int(value) == 1
+    except (TypeError, ValueError):
+        return bool(value)
+
+
+def _extract_feature_attack_types(parsed_row):
+    if not parsed_row:
+        return set()
+
+    attack_types = set()
+    has_cve_2023_47271 = (
+        _is_enabled(parsed_row.get("has_cve_2023_47271_upload"))
+        or _is_enabled(parsed_row.get("has_cve_2023_47271_rce"))
+    )
+
+    for field, category in FEATURE_CATEGORIES.items():
+        if field == "has_cve_2021_32626" and has_cve_2023_47271:
+            continue
+
+        if _is_enabled(parsed_row.get(field)):
+            attack_types.add(category)
+
+    return attack_types
+
+
+def extract_attack_type(messages, parsed_row=None):
     
         attack_types = set()
     
@@ -119,6 +160,10 @@ def extract_attack_type(messages):
                 continue
     
             attack_types.add(category)
+
+        attack_types.update(
+            _extract_feature_attack_types(parsed_row)
+        )
     
         if not attack_types:
             return "unknown"

@@ -588,7 +588,8 @@ def main():
 
                 attack_type = (
                     extract_attack_type(
-                        messages
+                        messages,
+                        parsed_row,
                     )
                 )
 
