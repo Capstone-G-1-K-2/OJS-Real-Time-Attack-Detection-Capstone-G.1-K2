@@ -6,14 +6,9 @@ from urllib.parse import urlparse, parse_qs, unquote_plus
 import pandas as pd
 
 from src.preprocessing.pattern_rules import (
-    SQLI_PATTERNS,
-    SUSPICIOUS_PATH_PATTERNS,
     XSS_PATTERNS,
-    PATH_TRAVERSAL_PATTERNS,
     COMMAND_INJECTION_PATTERNS,
     HOST_HEADER_XSS_PATTERNS,
-    CSRF_PATTERNS,
-    PRIVESC_PATTERNS,
     EXECUTABLE_EXTENSIONS,
     FILE_UPLOAD_BYPASS_PATTERNS,
     CVE_2023_47271_XML_BODY_PATTERNS,
@@ -71,10 +66,7 @@ def build_tabular_features(df: pd.DataFrame) -> pd.DataFrame:
     
     # Pattern matching (using decoded URI to catch obfuscated attacks)
     full_text = uri_decoded + " " + user_agent.map(_safe_str)
-    features["has_sqli_pattern"] = full_text.map(lambda s: _contains_pattern(s, SQLI_PATTERNS))
     features["has_xss_pattern"] = full_text.map(lambda s: _contains_pattern(s, XSS_PATTERNS))
-    features["has_suspicious_path"] = uri.map(lambda s: _contains_pattern(s, SUSPICIOUS_PATH_PATTERNS))
-    features["has_path_traversal"] = uri_decoded.map(lambda s: _contains_pattern(s, PATH_TRAVERSAL_PATTERNS))
     features["has_command_injection"] = uri_decoded.map(lambda s: _contains_pattern(s, COMMAND_INJECTION_PATTERNS))
     
     # ============ CVE-SPECIFIC FEATURES ============
@@ -90,16 +82,7 @@ def build_tabular_features(df: pd.DataFrame) -> pd.DataFrame:
     ).astype(int)
     features["has_cve_2023_47271_rce"] = full_text.map(lambda s: _contains_pattern(s, COMMAND_INJECTION_PATTERNS))
     
-    # CVE-2023-6671: CSRF (detect missing/suspicious CSRF tokens)
-    features["missing_csrf_token"] = (~full_text.map(lambda s: _contains_pattern(s, CSRF_PATTERNS))).astype(int)
-    features["has_suspicious_referer"] = ((df["referer"].map(_safe_str) if "referer" in df.columns else pd.Series("", index=df.index)) == "-").astype(int)
-    
-    # CVE-2024-25434/36/38: XSS + Privilege Escalation
-    features["has_cve_2024_xss_privesc"] = full_text.map(
-        lambda s: _contains_pattern(s, XSS_PATTERNS) * _contains_pattern(s, PRIVESC_PATTERNS)
-    )
-    features["has_privesc_attempt"] = full_text.map(lambda s: _contains_pattern(s, PRIVESC_PATTERNS))
-    
+
     # CVE-2021-32626: RCE via arbitrary file upload
     features["has_executable_upload"] = uri_decoded.map(lambda s: _contains_pattern(s, EXECUTABLE_EXTENSIONS))
     features["has_file_upload_bypass"] = uri_decoded.map(lambda s: _contains_pattern(s, FILE_UPLOAD_BYPASS_PATTERNS))

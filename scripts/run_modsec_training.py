@@ -75,21 +75,12 @@ def _build_pipeline(model: XGBClassifier | None = None, use_smote: bool = False,
         "request_time",
         "user_agent_len",
         "uri_len",
-        "has_sqli_pattern",
         "has_xss_pattern",
-        "has_suspicious_path",
-        "has_path_traversal",
         "has_command_injection",
         "has_cve_2022_24181",
         "has_cve_2023_47271_upload",
         "has_cve_2023_47271_rce",
-        "missing_csrf_token",
-        "has_suspicious_referer",
-        "has_cve_2024_xss_privesc",
-        "has_privesc_attempt",
         "has_cve_2021_32626",
-        "has_cve_2023_47271_upload",
-        "has_cve_2023_47271_rce",
     ]
     categorical_features = ["method"]
     text_feature = "uri"
@@ -225,18 +216,11 @@ def _build_automl_search(use_smote: bool = False, smote_k: int = 5, cv=None) -> 
         "request_time",
         "user_agent_len",
         "uri_len",
-        "has_sqli_pattern",
         "has_xss_pattern",
-        "has_suspicious_path",
-        "has_path_traversal",
         "has_command_injection",
         "has_cve_2022_24181",
         "has_cve_2023_47271_upload",
         "has_cve_2023_47271_rce",
-        "missing_csrf_token",
-        "has_suspicious_referer",
-        "has_cve_2024_xss_privesc",
-        "has_privesc_attempt",
         "has_cve_2021_32626",
     ]
     categorical_features = ["method"]
@@ -346,7 +330,18 @@ def train(
     df = load_dataset(dataset_path)
 
     if "label" not in df.columns:
-        raise ValueError("Dataset harus punya kolom 'label' (0 = normal, 1 = attack).")
+        if "human_label" in df.columns and "model_prediction" in df.columns:
+            import numpy as np
+            print("[INFO] Kolom 'label' tidak ditemukan. Menggunakan 'human_label' jika ada, fallback ke 'model_prediction'.")
+            df["human_label"] = df["human_label"].replace("", np.nan)
+            df["label_raw"] = df["human_label"].fillna(df["model_prediction"])
+            df["label"] = pd.to_numeric(df["label_raw"], errors="coerce").fillna(0).astype(int)
+            df = df.drop(columns=["label_raw"])
+        elif "model_prediction" in df.columns:
+            print("[INFO] Kolom 'label' tidak ditemukan. Menggunakan kolom 'model_prediction' sebagai label.")
+            df["label"] = pd.to_numeric(df["model_prediction"], errors="coerce").fillna(0).astype(int)
+        else:
+            raise ValueError("Dataset harus punya kolom 'label', 'human_label', atau 'model_prediction' (0 = normal, 1 = attack).")
 
     # Drop old pattern columns if pattern versions exist (avoid duplicates)
     if "has_sqli_pattern" in df.columns and "has_sqli" in df.columns:
@@ -362,14 +357,8 @@ def train(
     df = df.rename(columns={k: v for k, v in column_mapping.items() if k in df.columns})
 
     # Add missing columns with defaults
-    if "has_suspicious_path" not in df.columns:
-        df["has_suspicious_path"] = 0
-    if "has_sqli_pattern" not in df.columns:
-        df["has_sqli_pattern"] = 0
     if "has_xss_pattern" not in df.columns:
         df["has_xss_pattern"] = 0
-    if "has_path_traversal" not in df.columns:
-        df["has_path_traversal"] = 0
     if "has_command_injection" not in df.columns:
         df["has_command_injection"] = 0
     if "has_cve_2023_47271_upload" not in df.columns:
@@ -385,10 +374,7 @@ def train(
         "request_time",
         "user_agent_len",
         "uri_len",
-        "has_sqli_pattern",
         "has_xss_pattern",
-        "has_suspicious_path",
-        "has_path_traversal",
         "has_command_injection",
         "has_cve_2023_47271_upload",
         "has_cve_2023_47271_rce",
@@ -398,6 +384,10 @@ def train(
     missing = required_columns.difference(df.columns)
     if missing:
         raise ValueError(f"Kolom dataset kurang: {sorted(missing)}")
+
+    # Fix NaN strings untuk text/categorical transformer
+    df["uri"] = df["uri"].fillna("")
+    df["method"] = df["method"].fillna("GET")
 
     X = df.drop(columns=["label"])
     y = df["label"].astype(int)

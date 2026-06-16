@@ -15,14 +15,9 @@ from typing import Any
 import pandas as pd
 
 from src.preprocessing.pattern_rules import (
-    SQLI_PATTERNS,
-    SUSPICIOUS_PATH_PATTERNS,
     XSS_PATTERNS,
-    PATH_TRAVERSAL_PATTERNS,
     COMMAND_INJECTION_PATTERNS,
     HOST_HEADER_XSS_PATTERNS,
-    CSRF_PATTERNS,
-    PRIVESC_PATTERNS,
     EXECUTABLE_EXTENSIONS,
     FILE_UPLOAD_BYPASS_PATTERNS,
     CVE_2023_47271_XML_BODY_PATTERNS,
@@ -105,18 +100,9 @@ def _extract_from_json_transaction(tx: dict[str, Any]) -> dict[str, Any]:
         "msg": "",
         "is_blocked": False,
         "rule_count": 0,
-        "has_sqli": 0,
         "has_xss": 0,
-        "has_suspicious_path": 0,
-        "has_path_traversal": 0,
         "has_command_injection": 0,
         "has_cve_2022_24181": 0,
-        "has_cve_2023_47271_upload": 0,
-        "has_cve_2023_47271_rce": 0,
-        "missing_csrf_token": 0,
-        "has_suspicious_referer": 0,
-        "has_cve_2024_xss_privesc": 0,
-        "has_privesc_attempt": 0,
         "has_cve_2021_32626": 0,
         "has_cve_2023_47271_upload": 0,
         "has_cve_2023_47271_rce": 0,
@@ -199,10 +185,7 @@ def _extract_from_json_transaction(tx: dict[str, Any]) -> dict[str, Any]:
         # Extract pattern features
         full_text = f"{row['uri']} {row['msg']} {row['matched_data']}"
         
-        row["has_sqli"] = _contains_pattern(full_text, SQLI_PATTERNS)
         row["has_xss"] = _contains_pattern(full_text, XSS_PATTERNS)
-        row["has_suspicious_path"] = _contains_pattern(row["uri"], SUSPICIOUS_PATH_PATTERNS)
-        row["has_path_traversal"] = _contains_pattern(row["uri"], PATH_TRAVERSAL_PATTERNS)
         row["has_command_injection"] = _contains_pattern(row["uri"], COMMAND_INJECTION_PATTERNS)
         
         # ============ CVE-SPECIFIC FEATURES ============
@@ -218,21 +201,7 @@ def _extract_from_json_transaction(tx: dict[str, Any]) -> dict[str, Any]:
         ) else 0
         row["has_cve_2023_47271_rce"] = _contains_pattern(full_text, COMMAND_INJECTION_PATTERNS)
         
-        # CVE-2023-6671: CSRF (detect missing CSRF tokens in POST requests)
-        # Only flag as missing if: POST request AND no CSRF pattern found
-        is_post = row["method"].upper() == "POST"
-        has_csrf_pattern = _contains_pattern(full_text, CSRF_PATTERNS)
-        row["missing_csrf_token"] = 1 if (is_post and not has_csrf_pattern) else 0
-        
-        # Suspicious Referer (only for POST requests - GET requests usually lack Referer)
-        referer = request.get("headers", {}).get("Referer", "")
-        row["has_suspicious_referer"] = 1 if (is_post and (not referer or referer == "-")) else 0
-        
-        # CVE-2024-25434/36/38: XSS + Privilege Escalation
-        has_xss = _contains_pattern(full_text, XSS_PATTERNS)
-        has_privesc = _contains_pattern(full_text, PRIVESC_PATTERNS)
-        row["has_cve_2024_xss_privesc"] = 1 if (has_xss and has_privesc) else 0
-        row["has_privesc_attempt"] = has_privesc
+
         
         # Avoid treating OJS' normal front controller as an uploaded PHP file.
         clean_uri_for_upload = row["uri"].replace("/index.php", "").replace("index.php", "")

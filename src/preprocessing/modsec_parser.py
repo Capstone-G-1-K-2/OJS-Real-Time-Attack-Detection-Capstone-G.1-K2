@@ -3,7 +3,15 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import sys
+import csv
 import pandas as pd
+
+# Tingkatkan limit CSV field size untuk menghindari error pada payload log yang sangat besar
+try:
+    csv.field_size_limit(sys.maxsize)
+except OverflowError:
+    csv.field_size_limit(2147483647) # Fallback limit untuk OS Windows
 
 from src.preprocessing.modsec_json_parser import parse_modsecurity_json
 
@@ -64,7 +72,7 @@ def load_dataset(dataset_path: str | Path) -> pd.DataFrame:
         for file_path in files:
             suffix = file_path.suffix.lower()
             if suffix == ".csv":
-                frame = pd.read_csv(file_path)
+                frame = pd.read_csv(file_path, engine="python")
             else:
                 frame = _parse_json_log_file(file_path)
 
@@ -76,7 +84,7 @@ def load_dataset(dataset_path: str | Path) -> pd.DataFrame:
     suffix = path.suffix.lower()
 
     if suffix == ".csv":
-        return pd.read_csv(path)
+        return pd.read_csv(path, engine="python")
 
     if suffix in {".jsonl", ".log", ".json"}:
         return _parse_json_log_file(path)

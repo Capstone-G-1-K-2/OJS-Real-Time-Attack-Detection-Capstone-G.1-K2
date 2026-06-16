@@ -79,8 +79,7 @@ def main() -> None:
     # Feature flags
     print("\n[STEP 4] Feature flags distribution:")
     feature_cols = [
-        'has_sqli', 'has_xss', 'has_suspicious_path',
-        'has_path_traversal', 'has_command_injection',
+        'has_xss', 'has_command_injection',
         'has_cve_2023_47271_upload', 'has_cve_2023_47271_rce'
     ]
     for col in feature_cols:
