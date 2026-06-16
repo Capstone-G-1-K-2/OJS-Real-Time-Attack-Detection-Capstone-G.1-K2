@@ -20,6 +20,24 @@ def load_model(path):
     print(f"[*] Loading model from {path}...")
     with open(path, "rb") as f:
         model = pickle.load(f)
+        
+    # Force CPU to avoid the CPU/GPU mismatch overhead locally
+    try:
+        if hasattr(model, "named_steps"):
+            for name, step in model.named_steps.items():
+                if hasattr(step, "set_params"):
+                    try:
+                        step.set_params(device="cpu")
+                    except:
+                        pass
+        elif hasattr(model, "set_params"):
+            try:
+                model.set_params(device="cpu")
+            except:
+                pass
+    except Exception as e:
+        print(f"[WARNING] Could not force CPU mode: {e}")
+
     if not hasattr(model, "predict_from_json"):
         model = ModelWrapper.from_pipeline(model)
     return model
