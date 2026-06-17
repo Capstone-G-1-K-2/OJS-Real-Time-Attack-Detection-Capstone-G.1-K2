@@ -6,6 +6,10 @@ import time
 import pickle
 import asyncio
 import threading
+import ipaddress
+import urllib.error
+import urllib.parse
+import urllib.request
 
 from datetime import datetime, timedelta, timezone
 from queue import Full, Queue
@@ -50,10 +54,137 @@ TELEGRAM_QUEUE_MAX_SIZE = int(
     os.getenv("TELEGRAM_QUEUE_MAX_SIZE", "1000")
 )
 
+IP_API_BASE_URL = os.getenv(
+    "IP_API_BASE_URL",
+    "http://ip-api.com/json",
+)
+
+IP_API_TIMEOUT_SECONDS = float(
+    os.getenv("IP_API_TIMEOUT_SECONDS", "1.5")
+)
+
+IP_COUNTRY_CACHE = {}
+
+IP_API_DISABLED_UNTIL = 0.0
+
 WIB_TIMEZONE = timezone(
     timedelta(hours=7),
     "WIB",
 )
+
+
+def lookup_attacker_country(ip):
+
+    global IP_API_DISABLED_UNTIL
+
+    if not ip:
+        return None
+
+    try:
+        parsed_ip = ipaddress.ip_address(
+            str(ip).strip()
+        )
+    except ValueError:
+        return None
+
+    if (
+        parsed_ip.is_private
+        or parsed_ip.is_loopback
+        or parsed_ip.is_reserved
+        or parsed_ip.is_multicast
+        or parsed_ip.is_link_local
+    ):
+        return None
+
+    ip_text = str(parsed_ip)
+
+    if ip_text in IP_COUNTRY_CACHE:
+        return IP_COUNTRY_CACHE[
+            ip_text
+        ]
+
+    now = time.monotonic()
+
+    if now < IP_API_DISABLED_UNTIL:
+        return None
+
+    query = urllib.parse.urlencode({
+        "fields": "status,message,country",
+    })
+    url = (
+        f"{IP_API_BASE_URL}/"
+        f"{urllib.parse.quote(ip_text)}"
+        f"?{query}"
+    )
+
+    try:
+        with urllib.request.urlopen(
+            url,
+            timeout=IP_API_TIMEOUT_SECONDS,
+        ) as response:
+            payload = json.loads(
+                response.read().decode("utf-8")
+            )
+            remaining = response.headers.get(
+                "X-Rl"
+            )
+            reset_seconds = response.headers.get(
+                "X-Ttl"
+            )
+
+            if remaining == "0" and reset_seconds:
+                try:
+                    IP_API_DISABLED_UNTIL = (
+                        time.monotonic()
+                        + int(reset_seconds)
+                    )
+                except ValueError:
+                    IP_API_DISABLED_UNTIL = (
+                        time.monotonic()
+                        + 60
+                    )
+
+    except urllib.error.HTTPError as error:
+        if error.code == 429:
+            IP_API_DISABLED_UNTIL = (
+                time.monotonic()
+                + 60
+            )
+
+        print(
+            "[WARNING] IP country lookup failed:",
+            error,
+        )
+
+        return None
+
+    except Exception as error:
+        print(
+            "[WARNING] IP country lookup failed:",
+            error,
+        )
+
+        return None
+
+    if payload.get("status") != "success":
+        IP_COUNTRY_CACHE[
+            ip_text
+        ] = None
+
+        return None
+
+    country = payload.get(
+        "country"
+    )
+
+    if country:
+        IP_COUNTRY_CACHE[
+            ip_text
+        ] = country
+
+        return country
+
+    return None
 
 
 def load_model(path):
@@ -592,6 +723,11 @@ def main():
                         parsed_row,
                     )
                 )
+                attacker_country = (
+                    lookup_attacker_country(
+                        ip
+                    )
+                )
 
                 try:
 
@@ -602,6 +738,7 @@ def main():
                             probability=probability,
                             attack_url=uri,
                             attacker_ip=ip,
+                            attacker_country=attacker_country,
                         )
                     )
 

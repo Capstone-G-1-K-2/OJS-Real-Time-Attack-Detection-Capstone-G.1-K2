@@ -26,6 +26,7 @@ from src.api.models import (
 )
 from src.preprocessing.tabular_features import build_tabular_features
 from src.alerts.telegram_notifier import TelegramNotifier
+from src.db.dashboard_repository import get_dashboard_data
 from src.utils.model_versioning import ModelVersionManager
 
 # Configure logging
@@ -39,7 +40,8 @@ app = FastAPI(
     version="1.0.0",
 )
 
-# CORS middleware
+# CORS middleware. Development allows all origins; production should restrict
+# this to the actual dashboard/domain origins.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -130,6 +132,19 @@ async def health_check():
         model_loaded=MODEL is not None,
         model_version=f"{MODEL_VERSION}.0-xgboost" if MODEL_VERSION else "unknown",
     )
+
+
+@app.get("/dashboard")
+async def dashboard():
+    """Return live dashboard data from attack_events and system metrics."""
+    try:
+        return get_dashboard_data()
+    except Exception as e:
+        logger.error(f"Dashboard data error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        )
 
 
 @app.post("/predict/single", response_model=PredictionResult)
@@ -413,6 +428,7 @@ async def root():
         "docs": "/docs",
         "endpoints": {
             "health": "GET /health",
+            "dashboard": "GET /dashboard",
             "predict_single": "POST /predict/single",
             "predict_batch": "POST /predict/batch",
             "send_alert": "POST /alert",

@@ -13,7 +13,10 @@ RUN pip install --no-cache-dir \
     python-dotenv==1.2.2 \
     python-telegram-bot==22.5 \
     httpx==0.28.1 \
-    pymysql==1.1.2
+    pymysql==1.1.2 \
+    psutil==7.1.3 \
+    fastapi==0.135.3 \
+    uvicorn==0.42.0
 
 # Copy src module supaya pickle bisa load
 COPY src/ /app/src/

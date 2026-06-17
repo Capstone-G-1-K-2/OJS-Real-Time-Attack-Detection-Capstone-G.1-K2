@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OJS Attack Detection Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.8/dist/chart.umd.min.js" defer></script>
+  <script src="app.js" defer></script>
+</head>
+<body data-theme="dark">
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-icon">🛡</div>
+      <div>
+        <h1>OJS Attack Detection</h1>
+        <p>Real-time security monitoring dashboard</p>
+      </div>
+    </div>
+
+    <div class="topbar-actions">
+      <div class="last-updated">
+        <span>⚡</span>
+        Last updated: <strong id="lastUpdated">-</strong>
+      </div>
+      <button id="themeToggle" class="theme-button" type="button" aria-label="Switch theme">☾ Light</button>
+      <div class="live-pill">
+        <span></span>
+        LIVE MONITORING
+      </div>
+    </div>
+  </header>
+
+  <main class="dashboard-shell">
+    <section class="kpi-grid" aria-label="Attack counts">
+      <article class="kpi-card kpi-orange">
+        <div class="kpi-head">
+          <div class="kpi-icon">△</div>
+          <span>Last 24 hours</span>
+        </div>
+        <div class="kpi-body">
+          <strong id="attacks1Day">0</strong>
+          <span>Attacks Last 24 Hours</span>
+        </div>
+        <div class="kpi-line"></div>
+      </article>
+
+      <article class="kpi-card kpi-red">
+        <div class="kpi-head">
+          <div class="kpi-icon">⌁</div>
+          <span>High activity</span>
+        </div>
+        <div class="kpi-body">
+          <strong id="attacks7Days">0</strong>
+          <span>Attacks Last 7 Days</span>
+        </div>
+        <div class="kpi-line"></div>
+      </article>
+
+      <article class="kpi-card kpi-cyan">
+        <div class="kpi-head">
+          <div class="kpi-icon">▥</div>
+          <span>Moderate risk</span>
+        </div>
+        <div class="kpi-body">
+          <strong id="attacks30Days">0</strong>
+          <span>Attacks Last 30 Days</span>
+        </div>
+        <div class="kpi-line"></div>
+      </article>
+    </section>
+
+    <section class="content-grid">
+      <article class="panel attack-panel">
+        <div class="panel-header">
+          <h2><span>⚡</span> Live Incoming Attacks</h2>
+          <div class="streaming-pill"><span></span> STREAMING</div>
+        </div>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Attacker IP</th>
+                <th>Country</th>
+                <th>Attack Type</th>
+                <th>Attack MS</th>
+                <th>Confidence</th>
+              </tr>
+            </thead>
+            <tbody id="attackRows">
+              <tr>
+                <td colspan="6" class="empty-row">Waiting for attack data...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </article>
+
+      <aside class="side-column">
+        <article class="panel chart-card">
+          <div class="panel-title">
+            <div class="small-icon orange">◎</div>
+            <h2>Attack Type Distribution</h2>
+          </div>
+          <div class="donut-layout">
+            <div class="donut-chart">
+              <canvas id="attackTypeChart"></canvas>
+            </div>
+            <div id="attackTypeLegend" class="legend-list"></div>
+          </div>
+        </article>
+
+        <article class="panel country-card">
+          <div class="panel-title">
+            <div class="small-icon cyan">🌐</div>
+            <h2>Top 5 Attacker Countries</h2>
+          </div>
+          <div id="countryList" class="country-list"></div>
+        </article>
+
+        <article class="panel status-card">
+          <h2>System Status</h2>
+          <div class="status-grid">
+            <div class="status-tile ok">
+              <span>▣</span>
+              <small>Model Status</small>
+              <strong>Active</strong>
+            </div>
+            <div class="status-tile warn">
+              <span>◉</span>
+              <small>WAF Status</small>
+              <strong>DetectionOnly</strong>
+            </div>
+            <div class="status-tile ok">
+              <span>▤</span>
+              <small>Database</small>
+              <strong id="databaseStatus">Connected</strong>
+            </div>
+            <div class="status-tile info">
+              <span>⌁</span>
+              <small>Alert Channel</small>
+              <strong>Telegram</strong>
+            </div>
+          </div>
+        </article>
+      </aside>
+    </section>
+
+    <section class="usage-grid">
+      <article class="panel usage-card">
+        <div class="usage-header">
+          <div class="panel-title">
+            <div class="small-icon cyan">▣</div>
+            <div>
+              <h2>RAM Usage</h2>
+              <p>Memory utilization over time</p>
+            </div>
+          </div>
+          <div class="usage-value"><strong id="ramCurrent">0.0%</strong><span>current</span></div>
+        </div>
+        <div class="usage-chart">
+          <canvas id="ramChart"></canvas>
+        </div>
+      </article>
+
+      <article class="panel usage-card">
+        <div class="usage-header">
+          <div class="panel-title">
+            <div class="small-icon green">▣</div>
+            <div>
+              <h2>CPU Usage</h2>
+              <p>Processor utilization over time</p>
+            </div>
+          </div>
+          <div class="usage-value green-text"><strong id="cpuCurrent">0.0%</strong><span>current</span></div>
+        </div>
+        <div class="usage-chart">
+          <canvas id="cpuChart"></canvas>
+        </div>
+      </article>
+    </section>
+  </main>
+</body>
+</html>

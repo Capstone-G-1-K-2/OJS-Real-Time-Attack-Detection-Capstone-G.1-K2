@@ -7,6 +7,7 @@ def insert_attack_event(
     probability,
     attack_url,
     attacker_ip,
+    attacker_country=None,
 ):
     conn = get_connection()
 
@@ -19,9 +20,10 @@ def insert_attack_event(
                 attack_type,
                 probability,
                 attack_url,
-                attacker_ip
+                attacker_ip,
+                attacker_country
             )
-            VALUES (%s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s)
             """
 
             cur.execute(
@@ -32,6 +34,7 @@ def insert_attack_event(
                     probability,
                     attack_url,
                     attacker_ip,
+                    attacker_country,
                 ),
             )
 
