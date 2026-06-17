@@ -32,8 +32,6 @@ class ModelWrapper:
 
     def _normalize_row(self, row: Dict[str, Any]) -> Dict[str, Any]:
         # Rename parser-specific keys to pipeline expected names
-        if "has_sqli" in row and "has_sqli_pattern" not in row:
-            row["has_sqli_pattern"] = row.pop("has_sqli")
         if "has_xss" in row and "has_xss_pattern" not in row:
             row["has_xss_pattern"] = row.pop("has_xss")
 
@@ -46,10 +44,8 @@ class ModelWrapper:
             "uri_len",
             "has_xss_pattern",
             "has_command_injection",
-            "has_cve_2022_24181",
             "has_cve_2023_47271_upload",
             "has_cve_2023_47271_rce",
-            "has_cve_2021_32626",
         ]
 
         # Ensure all expected numeric features exist

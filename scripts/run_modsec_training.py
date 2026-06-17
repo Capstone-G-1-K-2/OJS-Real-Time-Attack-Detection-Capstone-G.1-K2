@@ -77,10 +77,8 @@ def _build_pipeline(model: XGBClassifier | None = None, use_smote: bool = False,
         "uri_len",
         "has_xss_pattern",
         "has_command_injection",
-        "has_cve_2022_24181",
         "has_cve_2023_47271_upload",
         "has_cve_2023_47271_rce",
-        "has_cve_2021_32626",
     ]
     categorical_features = ["method"]
     text_feature = "uri"
@@ -218,10 +216,8 @@ def _build_automl_search(use_smote: bool = False, smote_k: int = 5, cv=None) -> 
         "uri_len",
         "has_xss_pattern",
         "has_command_injection",
-        "has_cve_2022_24181",
         "has_cve_2023_47271_upload",
         "has_cve_2023_47271_rce",
-        "has_cve_2021_32626",
     ]
     categorical_features = ["method"]
     text_feature = "uri"
@@ -344,14 +340,11 @@ def train(
             raise ValueError("Dataset harus punya kolom 'label', 'human_label', atau 'model_prediction' (0 = normal, 1 = attack).")
 
     # Drop old pattern columns if pattern versions exist (avoid duplicates)
-    if "has_sqli_pattern" in df.columns and "has_sqli" in df.columns:
-        df = df.drop(columns=["has_sqli"])
     if "has_xss_pattern" in df.columns and "has_xss" in df.columns:
         df = df.drop(columns=["has_xss"])
 
     # Rename columns from CSV format to training format if needed
     column_mapping = {
-        "has_sqli": "has_sqli_pattern",
         "has_xss": "has_xss_pattern",
     }
     df = df.rename(columns={k: v for k, v in column_mapping.items() if k in df.columns})

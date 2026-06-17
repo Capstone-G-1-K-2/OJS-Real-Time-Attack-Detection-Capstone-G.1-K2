@@ -40,19 +40,8 @@ def _build_pipeline() -> Pipeline:
         "severity_score",
         "user_agent_len",
         "uri_len",
-        "has_sqli_pattern",
         "has_xss_pattern",
-        "has_suspicious_path",
-        "has_path_traversal",
         "has_command_injection",
-        "has_cve_2022_24181",
-        "has_cve_2023_47271_upload",
-        "has_cve_2023_47271_rce",
-        "missing_csrf_token",
-        "has_suspicious_referer",
-        "has_cve_2024_xss_privesc",
-        "has_privesc_attempt",
-        "has_cve_2021_32626",
         "has_cve_2023_47271_upload",
         "has_cve_2023_47271_rce",
     ]
@@ -121,25 +110,23 @@ def train(
         raise ValueError("Dataset harus punya kolom 'label' (0 = normal, 1 = attack).")
 
     # Drop old pattern columns if pattern versions exist (avoid duplicates)
-    if "has_sqli_pattern" in df.columns and "has_sqli" in df.columns:
-        df = df.drop(columns=["has_sqli"])
     if "has_xss_pattern" in df.columns and "has_xss" in df.columns:
         df = df.drop(columns=["has_xss"])
     
     # Rename columns from CSV format to training format if needed
     column_mapping = {
-        "has_sqli": "has_sqli_pattern",
         "has_xss": "has_xss_pattern",
     }
     df = df.rename(columns={k: v for k, v in column_mapping.items() if k in df.columns})
     
     # Add missing columns with defaults
     default_columns = [
-        "rule_count", "has_suspicious_path", "has_sqli_pattern", "has_xss_pattern",
-        "has_path_traversal", "has_command_injection", "has_cve_2022_24181",
-        "has_cve_2023_47271_upload", "has_cve_2023_47271_rce",
-        "missing_csrf_token", "has_suspicious_referer", "has_cve_2024_xss_privesc",
-        "has_privesc_attempt", "has_cve_2021_32626", "has_cve_2023_47271_upload", "has_cve_2023_47271_rce"
+        "rule_count",
+        "severity_score",
+        "has_xss_pattern",
+        "has_command_injection",
+        "has_cve_2023_47271_upload",
+        "has_cve_2023_47271_rce",
     ]
     for col in default_columns:
         if col not in df.columns:
@@ -155,19 +142,8 @@ def train(
         "severity_score",
         "user_agent_len",
         "uri_len",
-        "has_sqli_pattern",
         "has_xss_pattern",
-        "has_suspicious_path",
-        "has_path_traversal",
         "has_command_injection",
-        "has_cve_2022_24181",
-        "has_cve_2023_47271_upload",
-        "has_cve_2023_47271_rce",
-        "missing_csrf_token",
-        "has_suspicious_referer",
-        "has_cve_2024_xss_privesc",
-        "has_privesc_attempt",
-        "has_cve_2021_32626",
         "has_cve_2023_47271_upload",
         "has_cve_2023_47271_rce",
         "label",

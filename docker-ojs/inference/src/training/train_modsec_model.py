@@ -40,9 +40,8 @@ def _build_pipeline() -> Pipeline:
         "severity_score",
         "user_agent_len",
         "uri_len",
-        "has_sqli_pattern",
         "has_xss_pattern",
-        "has_suspicious_path",
+        "has_command_injection",
         "has_cve_2023_47271_upload",
         "has_cve_2023_47271_rce",
     ]
@@ -111,14 +110,11 @@ def train(
         raise ValueError("Dataset harus punya kolom 'label' (0 = normal, 1 = attack).")
 
     # Drop old pattern columns if pattern versions exist (avoid duplicates)
-    if "has_sqli_pattern" in df.columns and "has_sqli" in df.columns:
-        df = df.drop(columns=["has_sqli"])
     if "has_xss_pattern" in df.columns and "has_xss" in df.columns:
         df = df.drop(columns=["has_xss"])
     
     # Rename columns from CSV format to training format if needed
     column_mapping = {
-        "has_sqli": "has_sqli_pattern",
         "has_xss": "has_xss_pattern",
     }
     df = df.rename(columns={k: v for k, v in column_mapping.items() if k in df.columns})
@@ -126,12 +122,10 @@ def train(
     # Add missing columns with defaults
     if "rule_count" not in df.columns:
         df["rule_count"] = 0
-    if "has_suspicious_path" not in df.columns:
-        df["has_suspicious_path"] = 0
-    if "has_sqli_pattern" not in df.columns:
-        df["has_sqli_pattern"] = 0
     if "has_xss_pattern" not in df.columns:
         df["has_xss_pattern"] = 0
+    if "has_command_injection" not in df.columns:
+        df["has_command_injection"] = 0
     if "has_cve_2023_47271_upload" not in df.columns:
         df["has_cve_2023_47271_upload"] = 0
     if "has_cve_2023_47271_rce" not in df.columns:
@@ -147,9 +141,10 @@ def train(
         "severity_score",
         "user_agent_len",
         "uri_len",
-        "has_sqli_pattern",
         "has_xss_pattern",
-        "has_suspicious_path",
+        "has_command_injection",
+        "has_cve_2023_47271_upload",
+        "has_cve_2023_47271_rce",
         "label",
     }
 
