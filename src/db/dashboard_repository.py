@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 from datetime import datetime
+from time import monotonic
 from typing import Any
 
 import psutil
 
 from src.auth.db import get_connection
+
+TABLE_COLUMNS_CACHE_SECONDS = 10
+TABLE_COLUMNS_CACHE: dict[str, tuple[float, set[str]]] = {}
 
 
 def _empty_dashboard() -> dict[str, Any]:
@@ -26,6 +30,12 @@ def _empty_dashboard() -> dict[str, Any]:
 
 
 def _get_table_columns(cur, table_name: str) -> set[str]:
+    cached = TABLE_COLUMNS_CACHE.get(table_name)
+    now = monotonic()
+
+    if cached and now - cached[0] <= TABLE_COLUMNS_CACHE_SECONDS:
+        return set(cached[1])
+
     cur.execute(
         """
         SELECT COLUMN_NAME
@@ -36,10 +46,14 @@ def _get_table_columns(cur, table_name: str) -> set[str]:
         (table_name,),
     )
 
-    return {
+    columns = {
         row["COLUMN_NAME"]
         for row in cur.fetchall()
     }
+
+    TABLE_COLUMNS_CACHE[table_name] = (now, columns)
+
+    return set(columns)
 
 
 def _format_datetime(value):
@@ -98,6 +112,10 @@ def _fetch_live_attacks(
     cur,
     attack_columns: set[str],
     modsec_columns: set[str],
+    *,
+    after_id: int | None = None,
+    limit: int = 20,
+    ascending: bool = False,
 ) -> list[dict[str, Any]]:
     country_expr = (
         "COALESCE(NULLIF(a.attacker_country, ''), 'Unknown')"
@@ -138,9 +156,20 @@ def _fetch_live_attacks(
         else "''"
     )
 
+    where_clause = ""
+    params: list[Any] = []
+
+    if after_id is not None:
+        where_clause = "WHERE a.id > %s"
+        params.append(after_id)
+
+    order_direction = "ASC" if ascending else "DESC"
+    params.append(limit)
+
     cur.execute(
         f"""
         SELECT
+            a.id,
             a.detected_at,
             {attacker_ip_expr} AS attacker_ip,
             {country_expr} AS attacker_country,
@@ -149,9 +178,11 @@ def _fetch_live_attacks(
             {probability_expr} AS probability,
             {attack_url_expr} AS attack_url
         FROM attack_events a
-        ORDER BY a.detected_at DESC
-        LIMIT 20
-        """
+        {where_clause}
+        ORDER BY a.id {order_direction}
+        LIMIT %s
+        """,
+        tuple(params),
     )
 
     attacks = []
@@ -159,6 +190,7 @@ def _fetch_live_attacks(
     for row in cur.fetchall():
         attacks.append(
             {
+                "id": int(row.get("id") or 0),
                 "detected_at": _format_datetime(row.get("detected_at")),
                 "attacker_ip": row.get("attacker_ip") or "-",
                 "attacker_country": row.get("attacker_country") or "Unknown",
@@ -170,6 +202,19 @@ def _fetch_live_attacks(
         )
 
     return attacks
+
+
+def _fetch_latest_attack_id(cur) -> int | None:
+    cur.execute(
+        """
+        SELECT MAX(id) AS latest_id
+        FROM attack_events
+        """
+    )
+    row = cur.fetchone() or {}
+    latest_id = row.get("latest_id")
+
+    return int(latest_id) if latest_id is not None else None
 
 
 def _fetch_attack_types(cur) -> list[dict[str, Any]]:
@@ -284,6 +329,60 @@ def get_dashboard_data() -> dict[str, Any]:
                 ),
                 "system": _get_system_metrics(),
             }
+
+    finally:
+        conn.close()
+
+
+def get_latest_attack_id() -> int | None:
+    conn = get_connection()
+
+    try:
+        with conn.cursor() as cur:
+            attack_columns = _get_table_columns(
+                cur,
+                "attack_events",
+            )
+
+            if not attack_columns:
+                return None
+
+            return _fetch_latest_attack_id(cur)
+
+    finally:
+        conn.close()
+
+
+def get_attack_events_after(
+    attack_id: int,
+    *,
+    limit: int = 20,
+) -> list[dict[str, Any]]:
+    conn = get_connection()
+
+    try:
+        with conn.cursor() as cur:
+            attack_columns = _get_table_columns(
+                cur,
+                "attack_events",
+            )
+
+            if not attack_columns:
+                return []
+
+            modsec_columns = _get_table_columns(
+                cur,
+                "modsec_events",
+            )
+
+            return _fetch_live_attacks(
+                cur,
+                attack_columns,
+                modsec_columns,
+                after_id=attack_id,
+                limit=limit,
+                ascending=True,
+            )
 
     finally:
         conn.close()

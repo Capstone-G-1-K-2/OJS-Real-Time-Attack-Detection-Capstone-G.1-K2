@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
 import pickle
 import sys
@@ -9,8 +11,9 @@ from pathlib import Path
 from typing import Optional
 
 import pandas as pd
-from fastapi import FastAPI, HTTPException, status
+from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 
 # Setup path for imports
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -26,7 +29,11 @@ from src.api.models import (
 )
 from src.preprocessing.tabular_features import build_tabular_features
 from src.alerts.telegram_notifier import TelegramNotifier
-from src.db.dashboard_repository import get_dashboard_data
+from src.db.dashboard_repository import (
+    get_attack_events_after,
+    get_dashboard_data,
+    get_latest_attack_id,
+)
 from src.utils.model_versioning import ModelVersionManager
 
 # Configure logging
@@ -145,6 +152,70 @@ async def dashboard():
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(e),
         )
+
+
+@app.get("/dashboard/events")
+async def dashboard_events(
+    request: Request,
+    after_id: int | None = None,
+):
+    """Stream new attack rows to the dashboard using Server-Sent Events."""
+
+    async def event_stream():
+        last_attack_id = (
+            after_id
+            if after_id is not None
+            else await asyncio.to_thread(get_latest_attack_id)
+        )
+        last_attack_id = int(last_attack_id or 0)
+        heartbeat_ticks = 0
+
+        while not await request.is_disconnected():
+            try:
+                attacks = await asyncio.to_thread(
+                    get_attack_events_after,
+                    last_attack_id,
+                    limit=20,
+                )
+
+                for attack in attacks:
+                    last_attack_id = max(
+                        last_attack_id,
+                        int(attack.get("id") or 0),
+                    )
+                    payload = json.dumps(
+                        attack,
+                        separators=(",", ":"),
+                    )
+                    yield (
+                        f"id: {last_attack_id}\n"
+                        "event: attack\n"
+                        f"data: {payload}\n\n"
+                    )
+
+                if not attacks:
+                    heartbeat_ticks += 1
+                    if heartbeat_ticks >= 15:
+                        heartbeat_ticks = 0
+                        yield ": keep-alive\n\n"
+                else:
+                    heartbeat_ticks = 0
+
+            except Exception as e:
+                logger.error(f"Dashboard SSE error: {e}")
+                yield "event: error\ndata: {\"message\":\"Dashboard stream unavailable\"}\n\n"
+
+            await asyncio.sleep(1)
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @app.post("/predict/single", response_model=PredictionResult)
@@ -429,6 +500,7 @@ async def root():
         "endpoints": {
             "health": "GET /health",
             "dashboard": "GET /dashboard",
+            "dashboard_events": "GET /dashboard/events",
             "predict_single": "POST /predict/single",
             "predict_batch": "POST /predict/batch",
             "send_alert": "POST /alert",

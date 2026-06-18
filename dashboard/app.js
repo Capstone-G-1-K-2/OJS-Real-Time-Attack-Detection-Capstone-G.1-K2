@@ -23,10 +23,20 @@ function resolveDashboardApiFallbackUrls() {
   ].filter((url, index, urls) => urls.indexOf(url) === index);
 }
 
+function resolveDashboardEventsFallbackUrls() {
+  if (window.DASHBOARD_EVENTS_URL) {
+    return [window.DASHBOARD_EVENTS_URL];
+  }
+
+  return DASHBOARD_API_FALLBACK_URLS.map((url) => `${url.replace(/\/dashboard$/, "")}/dashboard/events`);
+}
+
 const DASHBOARD_API_URL = resolveDashboardApiUrl();
 const DASHBOARD_API_FALLBACK_URLS = resolveDashboardApiFallbackUrls();
-const POLL_INTERVAL_MS = 3000;
+const DASHBOARD_EVENTS_FALLBACK_URLS = resolveDashboardEventsFallbackUrls();
+const SNAPSHOT_POLL_INTERVAL_MS = 5000;
 const MAX_SYSTEM_POINTS = 20;
+const MAX_LIVE_ATTACKS = 20;
 const THEME_STORAGE_KEY = "ojs-dashboard-theme";
 
 const THEME_PALETTES = {
@@ -50,6 +60,10 @@ const state = {
   ramSamples: [],
   cpuSamples: [],
   timeLabels: [],
+  liveAttacks: [],
+  latestAttackId: 0,
+  eventSource: null,
+  eventSourceUrlIndex: 0,
   charts: {},
   theme: "dark",
 };
@@ -354,6 +368,53 @@ function updateCounts(counts = {}) {
   el.attacks30Days.textContent = formatNumber(counts.attacks_30_days);
 }
 
+function normalizeAttack(attack = {}) {
+  return {
+    id: Number(attack.id || 0),
+    detected_at: attack.detected_at || "",
+    attacker_ip: attack.attacker_ip || "-",
+    attacker_country: attack.attacker_country || "Unknown",
+    attack_type: attack.attack_type || "Unknown",
+    attack_ms: attack.attack_ms,
+    probability: attack.probability,
+    attack_url: attack.attack_url || "",
+  };
+}
+
+function setLiveAttacks(attacks = []) {
+  state.liveAttacks = attacks
+    .map(normalizeAttack)
+    .sort((a, b) => Number(b.id || 0) - Number(a.id || 0))
+    .slice(0, MAX_LIVE_ATTACKS);
+
+  state.latestAttackId = Math.max(
+    state.latestAttackId,
+    ...state.liveAttacks.map((attack) => Number(attack.id || 0)),
+    0,
+  );
+
+  renderAttackRows(state.liveAttacks);
+}
+
+function prependLiveAttack(attack = {}) {
+  const nextAttack = normalizeAttack(attack);
+
+  if (!nextAttack.id) {
+    return;
+  }
+
+  const existingIndex = state.liveAttacks.findIndex((item) => item.id === nextAttack.id);
+
+  if (existingIndex !== -1) {
+    state.liveAttacks.splice(existingIndex, 1);
+  }
+
+  state.liveAttacks.unshift(nextAttack);
+  state.liveAttacks = state.liveAttacks.slice(0, MAX_LIVE_ATTACKS);
+  state.latestAttackId = Math.max(state.latestAttackId, nextAttack.id);
+  renderAttackRows(state.liveAttacks);
+}
+
 function renderAttackRows(attacks = []) {
   if (!attacks.length) {
     el.attackRows.innerHTML = `
@@ -516,16 +577,66 @@ async function loadDashboard() {
     }
 
     updateCounts(data.counts || {});
-    renderAttackRows(data.live_attacks || []);
+    setLiveAttacks(data.live_attacks || []);
     updateAttackTypeChart(data.attack_types || []);
     renderTopCountries(data.top_countries || []);
     updateSystemCharts(data.system || {});
     updateLastUpdated();
     el.databaseStatus.textContent = "Connected";
+    return data;
   } catch (error) {
     console.error(error);
     el.databaseStatus.textContent = "Unavailable";
+    return null;
   }
+}
+
+function buildEventsUrl(baseUrl) {
+  if (!state.latestAttackId) {
+    return baseUrl;
+  }
+
+  const separator = baseUrl.includes("?") ? "&" : "?";
+  return `${baseUrl}${separator}after_id=${encodeURIComponent(state.latestAttackId)}`;
+}
+
+function connectDashboardEvents() {
+  if (!("EventSource" in window) || state.eventSource) {
+    return;
+  }
+
+  const baseUrl = DASHBOARD_EVENTS_FALLBACK_URLS[state.eventSourceUrlIndex];
+
+  if (!baseUrl) {
+    return;
+  }
+
+  const source = new EventSource(buildEventsUrl(baseUrl));
+  state.eventSource = source;
+
+  source.addEventListener("open", () => {
+    el.databaseStatus.textContent = "Connected";
+  });
+
+  source.addEventListener("attack", (event) => {
+    try {
+      prependLiveAttack(JSON.parse(event.data));
+      updateLastUpdated();
+      el.databaseStatus.textContent = "Connected";
+    } catch (error) {
+      console.error(error);
+    }
+  });
+
+  source.addEventListener("error", () => {
+    source.close();
+    state.eventSource = null;
+    state.eventSourceUrlIndex = (
+      state.eventSourceUrlIndex + 1
+    ) % DASHBOARD_EVENTS_FALLBACK_URLS.length;
+    el.databaseStatus.textContent = "Reconnecting";
+    window.setTimeout(connectDashboardEvents, 3000);
+  });
 }
 
 applyTheme(getStoredTheme());
@@ -537,5 +648,5 @@ if (el.themeToggle) {
 }
 
 createCharts();
-loadDashboard();
-setInterval(loadDashboard, POLL_INTERVAL_MS);
+loadDashboard().finally(connectDashboardEvents);
+setInterval(loadDashboard, SNAPSHOT_POLL_INTERVAL_MS);
