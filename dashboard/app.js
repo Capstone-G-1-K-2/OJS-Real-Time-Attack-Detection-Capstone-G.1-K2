@@ -80,6 +80,8 @@ const el = {
   ramCurrent: document.getElementById("ramCurrent"),
   cpuCurrent: document.getElementById("cpuCurrent"),
   databaseStatus: document.getElementById("databaseStatus"),
+  modelStatus: document.getElementById("modelStatus"),
+  alertChannelStatus: document.getElementById("alertChannelStatus"),
 };
 
 function getStoredTheme() {
@@ -542,6 +544,21 @@ function updateSystemCharts(system = {}) {
   state.charts.cpu.update();
 }
 
+function updateSystemStatus(status = {}) {
+  const modelName = status.model_name || "Unavailable";
+  const subscriptionLabel = status.telegram_subscription_label || "0/0 subscribed";
+
+  if (el.modelStatus) {
+    el.modelStatus.textContent = modelName;
+    el.modelStatus.title = modelName;
+  }
+
+  if (el.alertChannelStatus) {
+    el.alertChannelStatus.textContent = subscriptionLabel;
+    el.alertChannelStatus.title = `${status.alert_channel || "Telegram"}: ${subscriptionLabel}`;
+  }
+}
+
 function updateLastUpdated() {
   el.lastUpdated.textContent = new Date().toLocaleTimeString("en-GB", {
     hour: "2-digit",
@@ -581,12 +598,17 @@ async function loadDashboard() {
     updateAttackTypeChart(data.attack_types || []);
     renderTopCountries(data.top_countries || []);
     updateSystemCharts(data.system || {});
+    updateSystemStatus(data.system_status || {});
     updateLastUpdated();
     el.databaseStatus.textContent = "Connected";
     return data;
   } catch (error) {
     console.error(error);
     el.databaseStatus.textContent = "Unavailable";
+    updateSystemStatus({
+      model_name: "Unavailable",
+      telegram_subscription_label: "Unavailable",
+    });
     return null;
   }
 }

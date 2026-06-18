@@ -605,6 +605,8 @@ body[data-theme="light"] .attack-badge.unknown {
 .status-tile strong {
   margin-top: 2px;
   font: 700 11px var(--mono);
+  line-height: 1.25;
+  overflow-wrap: anywhere;
 }
 
 .status-tile.ok {

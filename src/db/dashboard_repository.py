@@ -7,6 +7,7 @@ from typing import Any
 import psutil
 
 from src.auth.db import get_connection
+from src.services.model_deployment_service import get_current_model_info
 
 TABLE_COLUMNS_CACHE_SECONDS = 10
 TABLE_COLUMNS_CACHE: dict[str, tuple[float, set[str]]] = {}
@@ -26,6 +27,17 @@ def _empty_dashboard() -> dict[str, Any]:
         ],
         "top_countries": [],
         "system": _get_system_metrics(),
+        "system_status": _get_empty_system_status(),
+    }
+
+
+def _get_empty_system_status() -> dict[str, Any]:
+    return {
+        "model_name": "No active model",
+        "alert_channel": "Telegram",
+        "telegram_subscribed": 0,
+        "telegram_total": 0,
+        "telegram_subscription_label": "0/0 subscribed",
     }
 
 
@@ -77,6 +89,70 @@ def _get_system_metrics() -> dict[str, float]:
     return {
         "cpu_percent": float(psutil.cpu_percent(interval=0.2)),
         "ram_percent": float(psutil.virtual_memory().percent),
+    }
+
+
+def _fetch_current_model_name() -> str:
+    try:
+        model_info = get_current_model_info()
+    except Exception:
+        return "Unavailable"
+
+    if not model_info:
+        return "No active model"
+
+    return str(model_info.get("model_name") or "Unknown")
+
+
+def _fetch_telegram_subscription_counts(
+    cur,
+    telegram_columns: set[str],
+) -> dict[str, int]:
+    if not telegram_columns:
+        return {
+            "subscribed": 0,
+            "total": 0,
+        }
+
+    subscribed_expr = (
+        "COALESCE(SUM(CASE WHEN is_subscribed = 1 THEN 1 ELSE 0 END), 0)"
+        if "is_subscribed" in telegram_columns
+        else "0"
+    )
+
+    cur.execute(
+        f"""
+        SELECT
+            {subscribed_expr} AS subscribed,
+            COUNT(*) AS total
+        FROM telegram_users
+        """
+    )
+    row = cur.fetchone() or {}
+
+    return {
+        "subscribed": int(row.get("subscribed") or 0),
+        "total": int(row.get("total") or 0),
+    }
+
+
+def _fetch_system_status(
+    cur,
+    telegram_columns: set[str],
+) -> dict[str, Any]:
+    telegram_counts = _fetch_telegram_subscription_counts(
+        cur,
+        telegram_columns,
+    )
+    subscribed = telegram_counts["subscribed"]
+    total = telegram_counts["total"]
+
+    return {
+        "model_name": _fetch_current_model_name(),
+        "alert_channel": "Telegram",
+        "telegram_subscribed": subscribed,
+        "telegram_total": total,
+        "telegram_subscription_label": f"{subscribed}/{total} subscribed",
     }
 
 
@@ -302,13 +378,23 @@ def get_dashboard_data() -> dict[str, Any]:
 
     try:
         with conn.cursor() as cur:
+            telegram_columns = _get_table_columns(
+                cur,
+                "telegram_users",
+            )
+
             attack_columns = _get_table_columns(
                 cur,
                 "attack_events",
             )
 
             if not attack_columns:
-                return _empty_dashboard()
+                dashboard = _empty_dashboard()
+                dashboard["system_status"] = _fetch_system_status(
+                    cur,
+                    telegram_columns,
+                )
+                return dashboard
 
             modsec_columns = _get_table_columns(
                 cur,
@@ -328,6 +414,10 @@ def get_dashboard_data() -> dict[str, Any]:
                     attack_columns,
                 ),
                 "system": _get_system_metrics(),
+                "system_status": _fetch_system_status(
+                    cur,
+                    telegram_columns,
+                ),
             }
 
     finally:
