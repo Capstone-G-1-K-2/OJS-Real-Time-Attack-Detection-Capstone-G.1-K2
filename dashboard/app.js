@@ -212,6 +212,22 @@ function probabilityNumber(value) {
   return Math.max(0, Math.min(100, numeric > 1 ? numeric : numeric * 100));
 }
 
+function confidenceClass(percent) {
+  if (percent < 40) {
+    return "low";
+  }
+
+  if (percent < 70) {
+    return "medium";
+  }
+
+  if (percent < 90) {
+    return "high";
+  }
+
+  return "critical";
+}
+
 function formatAttackMs(value) {
   if (value === null || value === undefined || value === "") {
     return "-";
@@ -431,6 +447,7 @@ function renderAttackRows(attacks = []) {
     .map((attack) => {
       const type = displayAttackType(attack.attack_type);
       const confidence = probabilityNumber(attack.probability);
+      const confidenceBand = confidenceClass(confidence);
       const attackUrl = attack.attack_url ? ` title="${escapeHtml(attack.attack_url)}"` : "";
 
       return `
@@ -443,7 +460,7 @@ function renderAttackRows(attacks = []) {
           </td>
           <td>${escapeHtml(formatAttackMs(attack.attack_ms))}</td>
           <td>
-            <div class="confidence">
+            <div class="confidence ${confidenceBand}">
               <div class="confidence-bar"><span style="width: ${confidence}%"></span></div>
               <span>${escapeHtml(formatProbability(attack.probability))}</span>
             </div>

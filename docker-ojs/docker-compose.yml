@@ -164,7 +164,7 @@ services:
       - ../src:/app/src
       - ../models:/app/models
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     networks:
       - inside
     depends_on:
@@ -178,7 +178,7 @@ services:
       - ../dashboard:/usr/share/nginx/html:ro
       - ../dashboard/nginx.conf:/etc/nginx/conf.d/default.conf:ro
     ports:
-      - "9000:80"
+      - "127.0.0.1:9000:80"
     networks:
       - inside
     depends_on:

@@ -422,6 +422,10 @@ body[data-theme="light"] .attack-badge.unknown {
   display: flex;
   align-items: center;
   gap: 10px;
+  --confidence-color: var(--cyan);
+  --confidence-start: #38bdf8;
+  --confidence-end: #22d3ee;
+  --confidence-glow: rgba(34, 211, 238, 0.35);
 }
 
 .confidence-bar {
@@ -436,7 +440,41 @@ body[data-theme="light"] .attack-badge.unknown {
   display: block;
   height: 100%;
   border-radius: inherit;
-  background: linear-gradient(90deg, var(--cyan), var(--green));
+  background: linear-gradient(90deg, var(--confidence-start), var(--confidence-end));
+  box-shadow: 0 0 8px var(--confidence-glow);
+}
+
+.confidence > span {
+  color: var(--confidence-color);
+  font-weight: 700;
+}
+
+.confidence.low {
+  --confidence-color: var(--cyan);
+  --confidence-start: #38bdf8;
+  --confidence-end: #22d3ee;
+  --confidence-glow: rgba(34, 211, 238, 0.35);
+}
+
+.confidence.medium {
+  --confidence-color: var(--yellow);
+  --confidence-start: #facc15;
+  --confidence-end: #f59e0b;
+  --confidence-glow: rgba(234, 179, 8, 0.35);
+}
+
+.confidence.high {
+  --confidence-color: var(--orange);
+  --confidence-start: #fb923c;
+  --confidence-end: #f97316;
+  --confidence-glow: rgba(249, 115, 22, 0.38);
+}
+
+.confidence.critical {
+  --confidence-color: var(--red);
+  --confidence-start: #fb7185;
+  --confidence-end: #ef4444;
+  --confidence-glow: rgba(239, 68, 68, 0.4);
 }
 
 .side-column {
